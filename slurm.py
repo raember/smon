@@ -119,15 +119,17 @@ def parse_value(val: str):
 
 def get_sjobs() -> list:
     sjobs = []
-    for sjob_str in subprocess.check_output(('scontrol', 'show', 'job')).decode().strip('\n ').split('\n\n'):
+    for sjob_str in subprocess.check_output(('scontrol', 'show', 'job', '-d')).decode().strip('\n ').split('\n\n'):
         sjob = {}
-        for field in sjob_str.replace('\n', '').split(' '):
-            if field == '':
-                continue
-            key, val = field.split('=', maxsplit=1)
-            val = parse_value(val)
-            sjob[key] = val
-        sjobs.append(sjob)
+        if sjob_str != 'No jobs in the system':
+            for field in sjob_str.replace('\n', '').split(' '):
+                if field == '':
+                    continue
+                key, val = field.split('=', maxsplit=1)
+                val = parse_value(val)
+                sjob[key] = val
+            if sjob['JobState'] == 'RUNNING':
+                sjobs.append(sjob)
     return sjobs
 
 
@@ -196,6 +198,16 @@ def proc_tree(proc: Process, level: int, func: Callable = lambda p, l: None) -> 
     return result
 
 
+def proc_tree_up(proc: Process, level: int, func: Callable = lambda p, l: None) -> bool:
+    if proc is None:
+        return False
+    # msg4(f'[{proc.pid}]: {proc.name()}')
+    result = bool(func(proc, level))
+    if result:
+        return result
+    return proc_tree_up(proc.parent(), level, func)
+
+
 def is_docker(proc: Process) -> bool:
     return proc.cmdline()[0] == 'docker'
 
@@ -257,40 +269,44 @@ def judge_runtime(timestamp: datetime, thresholds: Tuple[timedelta, timedelta]) 
     return f"\033[1{COLOR}m{str(runtime)}\033[m"
 
 
-def find_gpu(proc: Process, level):
+def get_container(proc: Process, level: int) -> dict:
+    for arg in proc.cmdline():
+        if arg.startswith('--cpuset-cpus='):
+            cpuset = arg.split('=', maxsplit=1)[1]
+            cont_info = cpusets_to_container.get(cpuset)
+        else:
+            arg = short_container_id_to_id.get(arg, arg)
+            if arg in cont_id_to_info.keys():
+                arg = cont_id_to_info[arg]['Name'].strip('/')
+            if arg in name_to_containers.keys():
+                cont_infos = name_to_containers[arg]
+                if len(cont_infos) > 1:
+                    if args.verbose:
+                        warn(f"Links to one of {len(cont_infos)} containers", level + 1)
+                    continue
+                else:
+                    cont_info = cont_infos[0]
+            else:
+                continue
+        if args.verbose:
+            msg(f"Linked to \033[{BLUE}m{cont_info['Name']}\033[m(\033[{BLUE}m{cont_info['Config']['Image']}\033[m, \033[1m{cont_info['State']['Pid']}\033[m) [{cont_info['Path']}]: {judge_runtime(parse(cont_info['State']['StartedAt']).replace(tzinfo=None), CONTAINER_RUNTIME_THRESHOLD)}{WARN}",
+                level + 1, BLUE)
+        return cont_info
+    err("FAILED TO LINK TO CORRECT DOCKER CONTAINER", level + 1)
+    return {}
+
+
+def find_gpu(proc: Process, level: int):
     # print_proc(proc, level)
     uses_gpu = False
     if is_docker(proc):
-        for arg in proc.cmdline():
-            if arg.startswith('--cpuset-cpus='):
-                cpuset = arg.split('=', maxsplit=1)[1]
-                cont_info = cpusets_to_container.get(cpuset)
-                if cont_info is not None:
-                    del cpusets_to_container[cpuset]
-            else:
-                arg = short_container_id_to_id.get(arg, arg)
-                if arg in cont_id_to_info.keys():
-                    arg = cont_id_to_info[arg]['Name']
-                if arg in name_to_containers.keys():
-                    cont_infos = name_to_containers[arg]
-                    if len(cont_infos) > 1:
-                        if args.verbose:
-                            warn(f"Links to one of {len(cont_infos)} containers", level + 1)
-                        continue
-                    else:
-                        cont_info = cont_infos[0]
-                else:
-                    continue
-            if args.verbose:
-                msg(f"Linked to \033[{BLUE}m{cont_info['Name']}\033[m(\033[{BLUE}m{cont_info['Config']['Image']}\033[m, \033[1m{cont_info['State']['Pid']}\033[m) [{cont_info['Path']}]: {judge_runtime(parse(cont_info['State']['StartedAt']).replace(tzinfo=None), CONTAINER_RUNTIME_THRESHOLD)}{WARN}",
-                    level + 1, BLUE)
-            for nvidia_proc in container_id_to_pids.get(cont_info['Id'], []):
-                for gpu in pid_to_gpus.get(nvidia_proc.pid, []):
-                    if args.verbose:
-                        msg(f"\033[{GREEN}mUses GPU gpu:{gpu['Minor Number']}\033[m", level + 2, GREEN)
-                    uses_gpu = True
-            return uses_gpu
-        err("FAILED TO LINK TO CORRECT DOCKER CONTAINER", level + 1)
+        cont_info = get_container(proc, level)
+        for nvidia_proc in container_id_to_pids.get(cont_info['Id'], []):
+            for gpu in pid_to_gpus.get(nvidia_proc.pid, []):
+                if args.verbose:
+                    msg(f"\033[{GREEN}mUses GPU gpu:{gpu['Minor Number']}\033[m", level + 2, GREEN)
+                uses_gpu = True
+        return uses_gpu
     elif is_tmux(proc) or is_screen(proc):
         err(f"ILLEGAL TMUX/SCREEN SESSION WITHIN SLURM JOB", level + 1)
     elif proc.pid in pid_to_gpus.keys():
@@ -304,6 +320,14 @@ def find_gpu(proc: Process, level):
                 msg(f"\033[{GREEN}mUses GPU gpu:{gpu['Minor Number']}\033[m", level + 1, GREEN)
         uses_gpu = True
     return uses_gpu
+
+
+def find_resource(proc: Process, level: int):
+    if is_docker(proc):
+        return True
+    elif is_tmux(proc) or is_screen(proc):
+        err(f"ILLEGAL TMUX/SCREEN SESSION WITHIN SLURM JOB", level + 1)
+    return False
 
 
 if __name__ == '__main__':
@@ -397,20 +421,39 @@ if __name__ == '__main__':
     if args.verbose:
         print("=" * 100)
     sjobs = get_sjobs()
+    users = []
     user_stats = defaultdict(list)
     offenders = defaultdict(list)
     if args.verbose:
         print(f"NUM SJOBS: {len(sjobs)}")
     for sjob in sjobs:
         username, uid = tuple(sjob["UserId"].strip(')').split('('))
+        users.append(username)
+        _, sid = tuple(sjob['AllocNode:Sid'].split(':'))
+        # Print PPIDs of slurm sessions:
+        # ppids = [spid]
+        # ppid = spid
+        # while ppid.pid != 1:
+        #     ppid = ppid.parent()
+        #     ppids.append(ppid)
+        # ppid = ppids.pop()
+        # print(f"{ppid.name()}({ppid.pid})", end='')
+        # for ppid in ppids[::-1]:
+        #     print(f" -> {ppid.name()}({ppid.pid})", end='')
+        # print()
+
         if args.verbose:
             msg1(
-                f'\033[{BLUE}m{sjob["JobName"]}\033[m({sjob["JobId"]}) by \033[{BLUE}m{username}\033[m({uid}):{sjob["GroupId"]} [\033[1m{sjob["JobState"]}\033[m, run time {judge_runtime(sjob["StartTime"], SJOB_RUNTIME_THRESHOLD)}]')
+                f'\033[{BLUE}m{sjob["JobName"]}\033[m({sjob["JobId"]}, {sjob.get("TresPerNode", "NO GPU")}) by \033[{BLUE}m{username}\033[m({uid}):{sjob["GroupId"]} [\033[1m{sjob["JobState"]}\033[m, run time {judge_runtime(sjob["StartTime"], SJOB_RUNTIME_THRESHOLD)}]')
             if sjob['Command'] == 'bash':
                 warn2("Uses interactive bash session")
         found = False
+        spid = Process(int(sid))
+        if spid.parent().name() not in ['screen', 'tmux: server']:
+            err2("Not running in a tmux/screen session")
         for pid in jobid_to_pids(sjob['JobId']):
             found |= proc_tree(pid, 1, find_gpu)
+
         if not found:
             offenders[username].append(sjob)
             if args.verbose:
@@ -420,11 +463,65 @@ if __name__ == '__main__':
 
     if args.verbose:
         print("=" * 100)
+        print("Overview")
+    free_gpus = list(range(8))
+    for user in {*users}:
+        if args.verbose:
+            msg1(f'\033[{BLUE}m{user}\033[m')
+        for sjob in sjobs:
+            username, uid = tuple(sjob["UserId"].strip(')').split('('))
+            if username != user:
+                continue
+            _, sid = tuple(sjob['AllocNode:Sid'].split(':'))
+            pid = Process(int(sid))
+            n_gpus = int(sjob.get("TresPerNode", "gpu:0").split(":")[-1])
+            gres_s: str = sjob['GRES'].strip(')').split(':')[-1]
+            gres = []
+            if gres_s != '':
+                gres_id_start, gres_id_end = (int(gres_s), int(gres_s)) if '-' not in gres_s else tuple(
+                    map(int, gres_s.split('-')))
+                gres = list(range(gres_id_start, gres_id_end + 1))
+            p1 = f'{pid.parent().name().split(":")[0]} -> "{sjob["JobName"]}"({sjob["JobId"]}):'
+            if args.verbose:
+                msg2(
+                    f'{p1.ljust(24)} {sjob["JobState"]}\033[m - run time {judge_runtime(sjob["StartTime"], SJOB_RUNTIME_THRESHOLD)}')
+            for gpu_id in gres:
+                free_gpus.remove(gpu_id)
+                if args.verbose:
+                    msg3(f'GPU:\033[{BLUE}m{gpu_id}\033[m')
+                gpu_info = nvidia_info['GPUs'][gpu_id]
+                if gpu_info['Processes'] == 'None':
+                    if args.verbose:
+                        err4("Not in use!")
+                else:
+                    if args.verbose:
+                        msg4(f"\033[{GREEN}mIn use\033[m")
+                    for pid, proc_info in gpu_info['Processes']['Entries'].items():
+                        proc = Process(pid)
+                        # msg3(f'[{proc.pid}]: {" ".join(proc.cmdline())} ({proc_info["Used GPU Memory"]})')
+                        pproc = proc.parent()
+                        while pproc is not None:
+                            if is_docker_container(pproc):
+                                cont_info = get_container(pproc, 2)
+                            pproc = pproc.parent()
+
+                # found = False
+                # for pid in jobid_to_pids(sjob['JobId']):
+                #     # msg3(f'{pid.name()} {pid.cmdline()}:')
+                #     # for child_pid in pid.children():
+                #     #     msg4(f'{child_pid.name()} {child_pid.cmdline()}')
+                #     found |= proc_tree(pid, 1, find_gpu)
+                # if not found:
+                #     err2("Not using GPU")
+
+    if args.verbose:
+        print("=" * 100)
         print("Statistics")
+    n_free_gpus = len(free_gpus)
     color = YELLOW if n_free_gpus > 0 else RED if n_free_gpus == 0 else GREEN
     s_free_gpus = f"\033[{color}m{n_free_gpus}\033[m"
     msg1(
-        f"Free GPUs: {s_free_gpus}/\033[{BLUE}m{len(nvidia_info['GPUs'])}\033[m (\033[{color}m{n_free_gpus / len(nvidia_info['GPUs']) * 100:.2f}%\033[m)")
+        f"Free GPUs: {s_free_gpus}/\033[{BLUE}m{len(nvidia_info['GPUs'])}\033[m (\033[{color}m{n_free_gpus / len(nvidia_info['GPUs']) * 100:.2f}%\033[m): {free_gpus}")
     mem_ratio = total_mem_used / total_mem
     color = RED if mem_ratio > 0.8 else YELLOW if mem_ratio > 0.5 else GREEN
     msg1(
