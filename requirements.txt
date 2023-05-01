@@ -1,2 +1,2 @@
 python-dateutil
-docker-py
+docker
