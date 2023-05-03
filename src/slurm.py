@@ -138,7 +138,7 @@ def scontrol_show_job_pretty() -> DataFrame:
     df.WorkDir = df.WorkDir.map(lambda s: Path(s))
     df.TresPerNode = df.TresPerNode.map(
         lambda s: 0 if s is None or isinstance(s, float) and math.isnan(s) else int(s[4:]))
-    return df
+    return df.set_index('JobId')
 
 
 def jobid_to_pids(jobid: int) -> DataFrame:
@@ -169,9 +169,9 @@ def is_sjob_setup_sane(sid: Process) -> Tuple[bool, Process]:
     return False, default_ppid
 
 
-def slurm_job_to_string(sjob: Series, fmt_info: str = FMT_INFO1) -> str:
+def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) -> str:
     return f'SLURM job' \
-           f' {fmt_info}#{sjob["JobId"]}{FMT_RST}:' \
+           f' {fmt_info}#{job_id}{FMT_RST}:' \
            f' "{fmt_info}{sjob["JobName"]}{FMT_RST}"' \
            f' by {fmt_info}{sjob["User"]}{FMT_RST}' \
            f' (started {sjob["RunTime"]} ago): {fmt_info}{sjob["Command"]}{FMT_RST}'

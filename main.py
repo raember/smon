@@ -40,8 +40,8 @@ def main(all=False, extended=False):
     containers2 = containers.copy()
 
     # Check all SLURM jobs
-    for idx, sjob in sjobs2.iterrows():
-        sjob_pids = jobid_to_pids(sjob['JobId'])
+    for job_id, sjob in sjobs2.iterrows():
+        sjob_pids = jobid_to_pids(job_id)
         sjob_pids_list = sjob_pids['PID'].values.tolist()
         is_user = all and sjob["User"] == username
         fmt_info = FMT_INFO2 if is_user else FMT_INFO1
@@ -50,7 +50,7 @@ def main(all=False, extended=False):
         fmt_bad = FMT_BAD2 if is_user else FMT_BAD1
 
         # Display basic information about SLURM job
-        msg1(slurm_job_to_string(sjob, fmt_info))
+        msg1(slurm_job_to_string(sjob, job_id, fmt_info))
 
         # Check if SLURM job has been set up correctly
         is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['Sid']))
@@ -58,8 +58,8 @@ def main(all=False, extended=False):
             msg2(f'{fmt_good}SLURM job has been set up correctly{FMT_RST}')
         else:
             err2(f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
-        sjobs2.loc[idx, 'is_sane'] = is_sane
-        sjobs2.loc[idx, 'ppid'] = slurm_ppid.pid
+        sjobs2.loc[job_id, 'is_sane'] = is_sane
+        sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid
 
         # Show resources allocated
         gres = sjob['GRES']
