@@ -176,25 +176,35 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     reserved_slurm_gpu_ids = []
     list(map(reserved_slurm_gpu_ids.extend, sjobs['GRES'].tolist()))
     available_gpus = len(free_gpu_ids) - len(reserved_slurm_gpu_ids)
-    msg3(f'SLURM: {FMT_INFO1}{available_gpus}{FMT_RST}')
-    # NVIDIA
+    free_gpu_str_slurm = f'{FMT_INFO1}{available_gpus}{FMT_RST}'
+    #   NVIDIA
     reserved_nvidia_gpu_n = len(gpu_processes['gpu_uuid'].unique())
-    msg3(f'NVIDIA: {FMT_INFO1}{len(free_gpu_ids) - reserved_nvidia_gpu_n}{FMT_RST}')
-    # Docker containers
+    free_gpu_str_nvidia = f'{FMT_INFO1}{len(free_gpu_ids) - reserved_nvidia_gpu_n}{FMT_RST}'
+    #   Docker containers
     reserved_docker_gpu_ids = []
     list(map(reserved_docker_gpu_ids.extend, containers['GPUs'].tolist()))
     reserved_docker_gpu_ids = list(set(reserved_docker_gpu_ids))
-    msg3(f'docker: {FMT_INFO1}{len(free_gpu_ids) - len(reserved_docker_gpu_ids)}{FMT_RST}')
-    available_cpus = multiprocessing.cpu_count() - sum(sjobs['MinCPUsNode'].to_list())
-    msg2(f'Number of free CPUs: {FMT_INFO1}{available_cpus}{FMT_RST}')
-    available_ram = virtual_memory().total / 1024 / 1024 / 1024 - sum(sjobs['MinMemoryNode'].to_list())
-    msg2(f"Amount of free RAM: {FMT_INFO1}{int(available_ram)}G{FMT_RST}")
+    free_gpu_str_docker = f'{FMT_INFO1}{len(free_gpu_ids) - len(reserved_docker_gpu_ids)}{FMT_RST}'
+    # CPUs
+    n_cpus = multiprocessing.cpu_count()
+    available_cpus = n_cpus - sum(sjobs['MinCPUsNode'].to_list())
+    free_cpu_str = f'{FMT_INFO1}{available_cpus}{FMT_RST}'
+    # RAM
+    ram_total = int(virtual_memory().total / 1024 / 1024 / 1024)
+    available_ram = ram_total - sum(sjobs['MinMemoryNode'].to_list())
+    free_ram_str = f"{FMT_INFO1}{int(available_ram)}G{FMT_RST}"
+
+    msg2(f"Free resources: {free_gpu_str_slurm}/{n_gpus} GPUs"
+         f" (nvidia: {free_gpu_str_nvidia}/{n_gpus}, docker: {free_gpu_str_docker}/{n_gpus})"
+         f", {free_cpu_str}/{n_cpus} CPUs"
+         f", {free_ram_str}/{ram_total}G RAM")
+
     if available_gpus > 0:
         msg1('Suggested srun command für single-GPU job:')
         sugg_cpu = int(available_cpus / available_gpus)
-        sugg_cpu = min(round_down(sugg_cpu), 8)
+        sugg_cpu = min(round_down(sugg_cpu), n_cpus // n_gpus)
         sugg_mem = int(available_ram / available_gpus)
-        sugg_mem = min(round_down(sugg_mem, 0b111), 64)
+        sugg_mem = min(round_down(sugg_mem, 0b111), ram_total // n_gpus)
         msg2(
             f'srun --pty --ntasks=1 --cpus-per-task={sugg_cpu} --mem={sugg_mem}G --gres=gpu:1 --jobname={FMT_INFO1}<jobname>{FMT_RST} bash')
 
