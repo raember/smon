@@ -9,17 +9,30 @@ from psutil import Process, virtual_memory
 
 from src.docker import get_running_containers, container_to_string
 from src.logging import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
-    FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST
+    FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1
 from src.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
 from src.slurm import scontrol_show_job_pretty, jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string
 from src.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
     round_down
 
 
-def main(all=False, extended=False):
-    username = os.environ.get('USER')
-    # username = 'scmx'
-    msg1('Crunching data')
+def main(show_all=False, extended=False, user=None, jobid=0):
+    show_all |= extended
+    if show_all and (jobid > 0 or user is not None):
+        err1('Cannot show all SLURM jobs and still honor --user or --jobid')
+        exit(1)
+
+    if user is None:
+        user = os.environ.get('USER')
+    addressee = []
+    if jobid > 0:
+        addressee.append(f'SLURM job {FMT_INFO1}#{jobid}{FMT_RST}')
+    else:
+        addressee.append(f'{FMT_INFO1}{"all" if show_all else user}{FMT_RST}')
+    # If we want the extended information, we need to run the sjob loop,
+    # but honoring the all vs user options or just run it quietly
+    run_all_sjobs_but_quietly = extended and not show_all
+    msg1(f'Crunching data for {", ".join(addressee)}')
     sjobs = scontrol_show_job_pretty()
     gpu_info = nvidia_smi_gpu().set_index('index')
     gpu_processes = nvidia_smi_compute()
@@ -31,8 +44,10 @@ def main(all=False, extended=False):
 
     # Trim the search space
     sjobs2 = sjobs.copy()
-    if not all:
-        sjobs2 = sjobs2.loc[sjobs2['User'] == username]
+    if jobid > 0:
+        sjobs2 = sjobs2.loc[jobid].to_frame().transpose()
+    elif not show_all:
+        sjobs2 = sjobs2.loc[sjobs2['User'] == user]
 
     # Keep track of already identified/processed information
     gpu_info2 = gpu_info.copy()
@@ -43,7 +58,7 @@ def main(all=False, extended=False):
     for job_id, sjob in sjobs2.iterrows():
         sjob_pids = jobid_to_pids(job_id)
         sjob_pids_list = sjob_pids['PID'].values.tolist()
-        is_user = all and sjob["User"] == username
+        is_user = show_all and sjob["User"] == user
         fmt_info = FMT_INFO2 if is_user else FMT_INFO1
         fmt_good = FMT_GOOD2 if is_user else FMT_GOOD1
         fmt_warn = FMT_WARN2 if is_user else FMT_WARN1
@@ -132,12 +147,6 @@ def main(all=False, extended=False):
             if len(gpu_excess) > 0:
                 err3(f'Container sees more GPUs ({gpu_excess}) than allowed!')
 
-        # msg1('Starting analysis of remaining GPU processes')
-        # for gpu_proc_id, gpu_proc_info in gpu_processes2.iterrows():
-        #     gpu_proc = Process(gpu_proc_info['pid'])
-        #     gpuid = gpu_info[gpu_info["uuid"] == gpu_proc_info['gpu_uuid']].index.item()
-        #     err2(f'Process {gpu_proc.pid} is using GPU {gpuid}')
-
         msg1('Overview of GPUs not in use at the moment (according to SLURM)')
         for gpu_id, gpu_info_ in gpu_info2.iterrows():
             msg2(gpu_to_string(gpu_info_, gpu_id, FMT_INFO1))
@@ -159,10 +168,11 @@ def main(all=False, extended=False):
                 if gpu_proc is None:
                     err5('Process is neither within a docker not inside a SLURM job!')
 
-    msg1('Additional statistics')
-    msg2('Number of free GPUs')
-    free_gpu_ids = list(range(8))
-    # SLURM
+    msg1('General information')
+    # GPUs
+    n_gpus = len(gpu_info)
+    free_gpu_ids = list(range(n_gpus))
+    #   SLURM
     reserved_slurm_gpu_ids = []
     list(map(reserved_slurm_gpu_ids.extend, sjobs['GRES'].tolist()))
     available_gpus = len(free_gpu_ids) - len(reserved_slurm_gpu_ids)
@@ -195,11 +205,19 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument(
         '-a', '--all',
-        action='store_true', default=False, dest='all',
+        action='store_true', default=False, dest='show_all',
         help='Show statistics about all users on the node')
     ap.add_argument(
         '-e', '--extended',
         action='store_true', default=False, dest='extended',
-        help='Show extended analysis about all components on the node')
+        help='Show extended analysis about all components on the node. Implies --all')
+    ap.add_argument(
+        '-u', '--user',
+        action='store', dest='user',
+        help='Show only SLURM jobs of given username. Cannot be set together with --all')
+    ap.add_argument(
+        '-j', '--jobid',
+        action='store', dest='jobid', type=int, default=0,
+        help='Show only SLURM job of give id. Cannot be set together with --all')
     args = ap.parse_args()
     main(**args.__dict__)
