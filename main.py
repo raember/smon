@@ -206,7 +206,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
         sugg_mem = int(available_ram / available_gpus)
         sugg_mem = min(round_down(sugg_mem, 0b111), ram_total // n_gpus)
         msg2(
-            f'srun --pty --ntasks=1 --cpus-per-task={sugg_cpu} --mem={sugg_mem}G --gres=gpu:1 --jobname={FMT_INFO1}<jobname>{FMT_RST} bash')
+            f'srun --pty --ntasks=1 --cpus-per-task={sugg_cpu} --mem={sugg_mem}G --gres=gpu:1 --job-name={FMT_INFO1}<jobname>{FMT_RST} bash')
 
     exit()
 
