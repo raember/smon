@@ -49,6 +49,11 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     elif not show_all:
         sjobs2 = sjobs2.loc[sjobs2['User'] == user]
 
+    # Extend dataframes
+    gpu_info['in_use'] = None
+    gpu_info['pids'] = None
+    gpu_processes['containers'] = None
+
     # Keep track of already identified/processed information
     gpu_info2 = gpu_info.copy()
     gpu_processes2 = gpu_processes.copy()
@@ -66,78 +71,103 @@ def main(show_all=False, extended=False, user=None, jobid=0):
 
         # Display basic information about SLURM job
         msg1(slurm_job_to_string(sjob, job_id, fmt_info))
+        is_queueing = sjob['JobState'] == 'PENDING'
+        is_cancelled = sjob['JobState'] == 'CANCELLED'
 
-        # Check if SLURM job has been set up correctly
-        is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['Sid']))
-        if is_sane:
-            msg2(f'{fmt_good}SLURM job has been set up correctly{FMT_RST}')
+        if not is_cancelled:
+            # Check if SLURM job has been set up correctly
+            is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['Sid']))
+            if is_sane:
+                msg2(f'{fmt_good}SLURM job has been set up correctly{FMT_RST}')
+            else:
+                err2(
+                    f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
+            sjobs2.loc[job_id, 'is_sane'] = is_sane
+            sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid
         else:
-            err2(f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
-        sjobs2.loc[job_id, 'is_sane'] = is_sane
-        sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid
+            sjobs2.loc[job_id, 'is_sane'] = True
+            sjobs2.loc[job_id, 'ppid'] = 0
 
         # Show resources allocated
         gres = sjob['GRES']
-        msg2(f'Reserved {fmt_info}{len(sjob["CPU_IDs"])}{FMT_RST} CPUs'  # ({sjob["NumTasks"]}×{sjob["CPUs/Task"]})'
-             f', min {fmt_info}{sjob["MinMemoryNode"]}G{FMT_RST} RAM'
-             f', and {fmt_info}{len(gres)}{FMT_RST} GPU' + ('' if len(gres) == 1 else 's') +
-             (f' (GPU: {", ".join(map(str, gres))})' if len(gres) != 0 else ''))
+        if is_queueing:
+            gres = list(range(sjob['TresPerNode']))
+        res = {}
+        for tres in sjob['TRES'].split(','):
+            k, v = tres.split('=', maxsplit=1)
+            res[k] = v
+        msg2(
+            f'Reserved {fmt_info}{res.get("cpu", len(sjob["CPU_IDs"]))}{FMT_RST} CPUs'  # ({sjob["NumTasks"]}×{sjob["CPUs/Task"]})'
+            f', min {fmt_info}{res.get("mem", sjob["MinMemoryNode"])}{FMT_RST} RAM'
+            f', and {fmt_info}{len(gres)}{FMT_RST} GPU' + ('' if len(gres) == 1 else 's') +
+            (f' (GPU: {", ".join(map(str, gres))})' if len(gres) != 0 and not is_queueing else ''))
 
         # Show GPU allocations
-        if len(gres) == 0:
+        if len(gres) == 0 and not is_queueing:
             warn3(f'{fmt_warn}No GPUs were allocated. Was this intended?')
-        for gpu_id in gres:
-            gpu_info_ = gpu_info2.loc[gpu_id]
-            # Print stats
-            msg3(gpu_to_string(gpu_info_, gpu_id, fmt_info))
+        if not is_queueing:
+            for gpu_id in gres:
+                gpu_info_ = gpu_info2.loc[gpu_id]
+                # Print stats
+                msg3(gpu_to_string(gpu_info_, gpu_id, fmt_info))
 
-            # Determine throttling
-            throttling_reasons = gpu_info_[NVIDIA_CLOCK_SPEED_THROTTLE_REASONS]
-            for throttling_reason in throttling_reasons.index:
-                if throttling_reasons[throttling_reason] == 'Active':
-                    reason = throttling_reason.split('.')[-1].replace('_', ' ').title()
-                    reason = reason.replace('Sw', 'SW').replace('Hw', 'HW').replace('Gpu', 'GPU')
-                    if throttling_reason != 'clocks_throttle_reasons.gpu_idle':
-                        warn3(f'{fmt_warn}Throttling: {reason}')
+                # Determine throttling
+                throttling_reasons = gpu_info_[NVIDIA_CLOCK_SPEED_THROTTLE_REASONS]
+                for throttling_reason in throttling_reasons.index:
+                    if throttling_reasons[throttling_reason] == 'Active':
+                        reason = throttling_reason.split('.')[-1].replace('_', ' ').title()
+                        reason = reason.replace('Sw', 'SW').replace('Hw', 'HW').replace('Gpu', 'GPU')
+                        if throttling_reason != 'clocks_throttle_reasons.gpu_idle':
+                            warn3(f'{fmt_warn}Throttling: {reason}')
 
-            # Check GPU usage and setup (i.e. container or venv/conda)
-            gpu_uuid = gpu_info_['uuid']
-            gpu_procs_actual = gpu_processes[gpu_processes['gpu_uuid'] == gpu_uuid]
-            if len(gpu_procs_actual) == 0:
-                warn4(f'GPU not in use')
-                # Find containers that see the exact list of this slurm job's resources
-                for cont_id, cont in containers.iterrows():
-                    if cont['GPUs'] == gres:
-                        msg5(f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
-            for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
-                gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
-                proc = Process(gpu_proc['pid'])
-                start_time = datetime.utcfromtimestamp(proc.create_time())
-                msg4(
-                    f'"{proc.name()}" ({fmt_info}{gpu_proc["used_gpu_memory [MiB]"]}MiB{FMT_RST}), started {datetime.utcnow() - start_time} ago')
-                pproc = proc.parent()
-                while pproc is not None:  # Check up the process tree
-                    if is_slurm_session(pproc, sjob_pids_list):
-                        msg5('Running inside SLURM job')
-                        break
-                    elif is_docker_container(pproc):
-                        # Running inside docker
-                        container_id = get_container_id_from(pproc)
-                        container_info = containers.loc[container_id]
-                        msg5(f'Running inside docker: {container_to_string(container_info, container_id, fmt_info)}')
-                        # Check sanity
-                        gpu_excess = [gpuid for gpuid in container_info['GPUs'] if gpuid not in gres]
-                        if len(gpu_excess) > 0:
-                            err5(f'Container sees more GPUs ({gpu_excess}) than allowed by SLURM job!')
-                        # TODO: Add more sanity checks for containers
-                        containers2 = containers2.drop(container_id, errors='ignore')
-                        break
-                    pproc = pproc.parent()
-                if proc is None:
-                    err5('Process is neither within a docker not inside a SLURM job!')
+                # Check GPU usage and setup (i.e. container or venv/conda)
+                gpu_uuid = gpu_info_['uuid']
+                gpu_procs_actual = gpu_processes[gpu_processes['gpu_uuid'] == gpu_uuid]
+                if len(gpu_procs_actual) == 0:
+                    warn4(f'GPU not in use')
+                    gpu_info.loc[gpu_id, 'in_use'] = False
+                    gpu_info2.loc[gpu_id, 'in_use'] = False
+                    # Find containers that see the exact list of this slurm job's resources
+                    for cont_id, cont in containers.iterrows():
+                        if cont['GPUs'] == gres:
+                            msg5(f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
+                else:
+                    gpu_info.loc[gpu_id, 'in_use'] = True
+                    gpu_info2.loc[gpu_id, 'in_use'] = True
+                gpu_info.at[gpu_id, 'pids'] = gpu_procs_actual.index.to_list()
+                gpu_info2.at[gpu_id, 'pids'] = gpu_procs_actual.index.to_list()
+                # Check all associated GPU processes
+                for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
+                    gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
+                    proc = Process(gpu_proc['pid'])
+                    start_time = datetime.utcfromtimestamp(proc.create_time())
+                    msg4(
+                        f'"{proc.name()}" ({fmt_info}{gpu_proc["used_gpu_memory [MiB]"]}MiB{FMT_RST}), started {datetime.utcnow() - start_time} ago')
+                    pproc = proc.parent()
+                    while pproc is not None:  # Check up the process tree
+                        if is_slurm_session(pproc, sjob_pids_list):
+                            msg5('Running inside SLURM job')
+                            break
+                        elif is_docker_container(pproc):
+                            # Running inside docker
+                            container_id = get_container_id_from(pproc)
+                            container_info = containers.loc[container_id]
+                            msg5(
+                                f'Running inside docker: {container_to_string(container_info, container_id, fmt_info)}')
+                            # Check sanity
+                            gpu_excess = [gpuid for gpuid in container_info['GPUs'] if gpuid not in gres]
+                            if len(gpu_excess) > 0:
+                                err5(f'Container sees more GPUs ({gpu_excess}) than allowed by SLURM job!')
+                            # TODO: Add more sanity checks for containers
+                            containers2 = containers2.drop(container_id, errors='ignore')
+                            gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
+                            break
+                        pproc = pproc.parent()
+                    if proc is None:
+                        err5('Process is neither within a docker not inside a SLURM job!')
 
-            # Remove from the list of GPUs
-            gpu_info2 = gpu_info2.drop(gpu_id)
+                # Remove from the list of GPUs
+                gpu_info2 = gpu_info2.drop(gpu_id)
     if extended:
         print()
         msg1('Starting analysis of remaining containers')

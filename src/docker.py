@@ -17,7 +17,7 @@ def get_running_containers(gpu_info: DataFrame) -> DataFrame:
             d[f'{key}.{k}'] = v
         del d[key]
 
-    for container in client.containers.list(all=True):
+    for container in client.containers.list():
         container: Container
         # print('=' * 100)
         # print(container.name)
@@ -44,7 +44,6 @@ def get_running_containers(gpu_info: DataFrame) -> DataFrame:
         containers.append(container_info)
 
         # TODO: Check which method gives certainty about visibility of GPUs:
-
         # print(f'ENV: {len(gpu_uuids)}')
         # ec, s = container.exec_run('python -c "import torch; print(torch.cuda.device_count());"', tty=True)
         # print(f"[{ec}]Torch: {s.decode()}")

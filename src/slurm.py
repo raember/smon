@@ -38,23 +38,31 @@ def scontrol_show_job() -> DataFrame:
     altered_header = rf"{SCONTROL_HEADERS[-1]}|END"
     current_headers = SCONTROL_HEADERS[:-1]
     current_headers.append(altered_header)
-    next_headers = SCONTROL_HEADERS[1:-1]
-    next_headers.append(altered_header)
-    next_headers.append(altered_header)
+    current_headers.append(altered_header)
     END = 'END='
     for sjob_line in sproc.stdout.readlines():
         data = {}
         rest_s = sjob_line.decode().strip('\n') + f' {END}'
-        for header, next_header in zip(current_headers, next_headers):
+        next_header = current_headers[0]
+        i = 0
+        while True:
             if rest_s == END:
                 break
+            header = next_header
+            next_header = current_headers[i + 1]
             regex = rf'^({header})=(|\S.*)(\s+)({next_header})='
             m = re.search(regex, rest_s)
-            assert m is not None
+            while m is None:
+                i += 1
+                data[header] = None
+                next_header = current_headers[i + 1]
+                regex = rf'^({header})=(|\S.*)(\s+)({next_header})='
+                m = re.search(regex, rest_s)
             key = m.group(1)
             val = m.group(2)
             data[key] = val
             rest_s = rest_s[m.regs[3][1]:]
+            i += 1
         sjobs.append(data)
     df = DataFrame(sjobs)
     return df
@@ -115,7 +123,7 @@ def scontrol_show_job_pretty() -> DataFrame:
 
     def id_to_list(s: str) -> List[int]:
         l = []
-        if s == '':
+        if s == '' or s == 'nan' or (isinstance(s, float) and math.isnan(s)):
             return l
         for ran in s.split(','):
             if '-' in ran:
@@ -126,7 +134,7 @@ def scontrol_show_job_pretty() -> DataFrame:
         return l
 
     df.CPU_IDs = df.CPU_IDs.map(id_to_list)
-    df.GRES = df.GRES.map(lambda s: id_to_list(s.strip(')').split(':')[-1]))
+    df.GRES = df.GRES.map(lambda s: id_to_list(str(s).strip(')').split(':')[-1]))
     df.MinCPUsNode = df.MinCPUsNode.astype(int)
     df.MinMemoryNode = df.MinMemoryNode.map(lambda s: int(s[:-1]))
     df.MinTmpDiskNode = df.MinTmpDiskNode.astype(int)
@@ -170,7 +178,10 @@ def is_sjob_setup_sane(sid: Process) -> Tuple[bool, Process]:
 
 
 def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) -> str:
+    is_not_running = sjob['JobState'] != 'RUNNING'
+    queue = " " + fmt_info + sjob['JobState'] + FMT_RST
     return f'SLURM job' \
+           f'{queue if is_not_running else ""}' \
            f' {fmt_info}#{job_id}{FMT_RST}:' \
            f' "{fmt_info}{sjob["JobName"]}{FMT_RST}"' \
            f' by {fmt_info}{sjob["User"]}{FMT_RST}' \
