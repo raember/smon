@@ -177,7 +177,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
             msg2(container_to_string(container, str(cont_id)))
             gpu_excess = container['GPUs']
             if len(gpu_excess) > 0:
-                err3(f'Container sees more GPUs ({gpu_excess}) than allowed!')
+                warn3(f'Container sees more GPUs ({gpu_excess}) than allowed!')
 
         msg1('Overview of GPUs not in use at the moment (according to SLURM)')
         for gpu_id, gpu_info_ in gpu_info2.iterrows():
@@ -186,37 +186,37 @@ def main(show_all=False, extended=False, user=None, jobid=0):
                 err3(f'Process {gpu_proc_.pid} is using GPU!')
                 gpu_proc = Process(gpu_proc_.pid)
                 msg4(process_to_string(gpu_proc))
-                pproc = gpu_proc.parent()
-                while pproc is not None:  # Check up the process tree
-                    if is_docker_container(pproc):
+                sjob_proc = gpu_proc.parent()
+                while sjob_proc is not None:  # Check up the process tree
+                    if is_docker_container(sjob_proc):
                         # Running inside docker
-                        container_id = get_container_id_from(pproc)
+                        container_id = get_container_id_from(sjob_proc)
                         container_info = containers.loc[container_id]
                         msg5(f'Running inside docker: {container_to_string(container_info, container_id, FMT_INFO1)}')
                         break
-                    elif pproc.name() in ['tmux: server', 'screen', 'bash']:
-                        msg5(process_to_string(pproc))
-                    pproc = pproc.parent()
+                    elif sjob_proc.name() in ['tmux: server', 'screen', 'bash']:
+                        msg5(process_to_string(sjob_proc))
+                    sjob_proc = sjob_proc.parent()
                 if gpu_proc is None:
                     err5('Process is neither within a docker not inside a SLURM job!')
 
     msg1('General information')
     # GPUs
     n_gpus = len(gpu_info)
-    free_gpu_ids = list(range(n_gpus))
+    all_gpu_ids = list(range(n_gpus))
     #   SLURM
     reserved_slurm_gpu_ids = []
     list(map(reserved_slurm_gpu_ids.extend, sjobs['GRES'].tolist()))
-    available_gpus = len(free_gpu_ids) - len(reserved_slurm_gpu_ids)
+    available_gpus = len(all_gpu_ids) - len(reserved_slurm_gpu_ids)
     free_gpu_str_slurm = f'{FMT_INFO1}{available_gpus}{FMT_RST}'
     #   NVIDIA
     reserved_nvidia_gpu_n = len(gpu_processes['gpu_uuid'].unique())
-    free_gpu_str_nvidia = f'{FMT_INFO1}{len(free_gpu_ids) - reserved_nvidia_gpu_n}{FMT_RST}'
+    free_gpu_str_nvidia = f'{FMT_INFO1}{len(all_gpu_ids) - reserved_nvidia_gpu_n}{FMT_RST}'
     #   Docker containers
     reserved_docker_gpu_ids = []
     list(map(reserved_docker_gpu_ids.extend, containers['GPUs'].tolist()))
     reserved_docker_gpu_ids = list(set(reserved_docker_gpu_ids))
-    free_gpu_str_docker = f'{FMT_INFO1}{len(free_gpu_ids) - len(reserved_docker_gpu_ids)}{FMT_RST}'
+    free_gpu_str_docker = f'{FMT_INFO1}{len(all_gpu_ids) - len(reserved_docker_gpu_ids)}{FMT_RST}'
     # CPUs
     n_cpus = multiprocessing.cpu_count()
     available_cpus = n_cpus - sum(sjobs['MinCPUsNode'].to_list())
