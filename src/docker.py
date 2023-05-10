@@ -57,5 +57,5 @@ def get_running_containers(gpu_info: DataFrame) -> DataFrame:
 
 def container_to_string(container_info: Series, container_id: str, fmt_info: str = FMT_INFO1) -> str:
     running = '' if container_info['State.Running'] else f' ({fmt_info}not running{FMT_RST})'
-    return f'"{fmt_info}{container_info["Name"]}{FMT_RST}"' \
+    return f'"{fmt_info}{container_info["Name"][1:]}{FMT_RST}"' \
            f' {fmt_info}{container_id[:12]}{FMT_RST} ({fmt_info}{container_info["Config.Image"]}{FMT_RST})' + running
