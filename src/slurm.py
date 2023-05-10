@@ -130,7 +130,7 @@ def get_jobs_pretty() -> DataFrame:
     df.tres_alloc_str = df.tres_alloc_str.astype(str)
     df['tres_alloc'] = df.tres_alloc_str.map(_query_to_dict)
     df.tres_per_node = df.tres_per_node.astype(str)
-    df['gpus'] = df.tres_per_node.map(lambda s: int(s.split(':')[-1]))
+    df['gpus'] = df.tres_per_node.map(lambda s: int(s.split(':')[-1]) if s != 'None' else 0)
     df.tres_req_str = df.tres_req_str.astype(str)
     df['tres_req'] = df.tres_req_str.map(_query_to_dict)
     df.user_id = df.user_id.astype(int)

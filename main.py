@@ -47,7 +47,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     if jobid > 0:
         sjobs2 = sjobs2.loc[jobid].to_frame().transpose()
     elif not show_all:
-        sjobs2 = sjobs2.loc[sjobs2['User'] == user]
+        sjobs2 = sjobs2.loc[sjobs2['user'] == user]
 
     # Extend dataframes
     gpu_info['in_use'] = None
