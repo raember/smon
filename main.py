@@ -141,16 +141,18 @@ def main(show_all=False, extended=False, user=None, jobid=0):
                     gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
                     proc = Process(gpu_proc['pid'])
                     start_time = datetime.utcfromtimestamp(proc.create_time())
+                    proc_cpu_util = proc.cpu_percent(0.2) / 100 * proc.cpu_num()
                     msg4(
-                        f'"{proc.name()}" ({fmt_info}{gpu_proc["used_gpu_memory [MiB]"]}MiB{FMT_RST}), started {datetime.utcnow() - start_time} ago')
-                    pproc = proc.parent()
-                    while pproc is not None:  # Check up the process tree
-                        if is_slurm_session(pproc, sjob_pids_list):
+                        f'"{proc.name()}" ({fmt_info}{gpu_proc["used_gpu_memory [MiB]"]}MiB{FMT_RST}, {fmt_info}{proc_cpu_util:.1f}%{FMT_RST} CPU), started {datetime.utcnow() - start_time} ago')
+                    get_jobs()
+                    sjob_proc = proc.parent()
+                    while sjob_proc is not None:  # Check up the process tree
+                        if is_slurm_session(sjob_proc, sjob_pids_list):
                             msg5('Running inside SLURM job')
                             break
-                        elif is_docker_container(pproc):
+                        elif is_docker_container(sjob_proc):
                             # Running inside docker
-                            container_id = get_container_id_from(pproc)
+                            container_id = get_container_id_from(sjob_proc)
                             container_info = containers.loc[container_id]
                             msg5(
                                 f'Running inside docker: {container_to_string(container_info, container_id, fmt_info)}')
@@ -162,7 +164,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
                             containers2 = containers2.drop(container_id, errors='ignore')
                             gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
                             break
-                        pproc = pproc.parent()
+                        sjob_proc = sjob_proc.parent()
                     if proc is None:
                         err5('Process is neither within a docker not inside a SLURM job!')
 
