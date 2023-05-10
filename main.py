@@ -11,7 +11,7 @@ from src.docker import get_running_containers, container_to_string
 from src.logging import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
     FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1
 from src.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
-from src.slurm import scontrol_show_job_pretty, jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string
+from src.slurm import get_jobs_pretty, jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_jobs
 from src.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
     round_down
 
@@ -33,7 +33,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     # but honoring the all vs user options or just run it quietly
     run_all_sjobs_but_quietly = extended and not show_all
     msg1(f'Crunching data for {", ".join(addressee)}')
-    sjobs = scontrol_show_job_pretty()
+    sjobs = get_jobs_pretty()
     gpu_info = nvidia_smi_gpu().set_index('index')
     gpu_processes = nvidia_smi_compute()
     containers = get_running_containers(gpu_info)
@@ -63,7 +63,7 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     for job_id, sjob in sjobs2.iterrows():
         sjob_pids = jobid_to_pids(job_id)
         sjob_pids_list = sjob_pids['PID'].values.tolist()
-        is_user = show_all and sjob["User"] == user
+        is_user = show_all and sjob['user'] == user
         fmt_info = FMT_INFO2 if is_user else FMT_INFO1
         fmt_good = FMT_GOOD2 if is_user else FMT_GOOD1
         fmt_warn = FMT_WARN2 if is_user else FMT_WARN1
@@ -71,15 +71,13 @@ def main(show_all=False, extended=False, user=None, jobid=0):
 
         # Display basic information about SLURM job
         msg1(slurm_job_to_string(sjob, job_id, fmt_info))
-        is_queueing = sjob['JobState'] == 'PENDING'
-        is_cancelled = sjob['JobState'] == 'CANCELLED'
+        is_queueing = sjob['job_state'] == 'PENDING'
+        is_cancelled = sjob['job_state'] == 'CANCELLED'
 
         if not is_cancelled:
             # Check if SLURM job has been set up correctly
-            is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['Sid']))
-            if is_sane:
-                msg2(f'{fmt_good}SLURM job has been set up correctly{FMT_RST}')
-            else:
+            is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['alloc_sid']))
+            if not is_sane:
                 err2(
                     f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
             sjobs2.loc[job_id, 'is_sane'] = is_sane
@@ -92,13 +90,10 @@ def main(show_all=False, extended=False, user=None, jobid=0):
         gres = sjob['GRES']
         if is_queueing:
             gres = list(range(sjob['TresPerNode']))
-        res = {}
-        for tres in sjob['TRES'].split(','):
-            k, v = tres.split('=', maxsplit=1)
-            res[k] = v
+        res = sjob['tres_req']
         msg2(
             f'Reserved {fmt_info}{res.get("cpu", len(sjob["CPU_IDs"]))}{FMT_RST} CPUs'  # ({sjob["NumTasks"]}×{sjob["CPUs/Task"]})'
-            f', min {fmt_info}{res.get("mem", sjob["MinMemoryNode"])}{FMT_RST} RAM'
+            f', min {fmt_info}{res.get("mem", sjob["min_memory_node"])}{FMT_RST} RAM'
             f', and {fmt_info}{len(gres)}{FMT_RST} GPU' + ('' if len(gres) == 1 else 's') +
             (f' (GPU: {", ".join(map(str, gres))})' if len(gres) != 0 and not is_queueing else ''))
 
@@ -219,17 +214,18 @@ def main(show_all=False, extended=False, user=None, jobid=0):
     free_gpu_str_docker = f'{FMT_INFO1}{len(all_gpu_ids) - len(reserved_docker_gpu_ids)}{FMT_RST}'
     # CPUs
     n_cpus = multiprocessing.cpu_count()
-    available_cpus = n_cpus - sum(sjobs['MinCPUsNode'].to_list())
+    available_cpus = n_cpus - sum(sjobs['pn_min_cpus'].to_list())
     free_cpu_str = f'{FMT_INFO1}{available_cpus}{FMT_RST}'
     # RAM
-    ram_total = int(virtual_memory().total / 1024 / 1024 / 1024)
-    available_ram = ram_total - sum(sjobs['MinMemoryNode'].to_list())
+    ram_total = virtual_memory().total / 1024 / 1024 / 1024
+    available_ram = int(ram_total - sum(sjobs['pn_min_memory'].to_list()) / 1024)
     free_ram_str = f"{FMT_INFO1}{int(available_ram)}G{FMT_RST}"
 
     msg2(f"Free resources: {free_gpu_str_slurm}/{n_gpus} GPUs"
-         f" (nvidia: {free_gpu_str_nvidia}/{n_gpus}, docker: {free_gpu_str_docker}/{n_gpus})"
+         f" ({FMT_INFO1}{reserved_nvidia_gpu_n}{FMT_RST}/{len(reserved_slurm_gpu_ids)} using the GPU)"
+         # f" (nvidia: {free_gpu_str_nvidia}/{n_gpus}, docker: {free_gpu_str_docker}/{n_gpus})"
          f", {free_cpu_str}/{n_cpus} CPUs"
-         f", {free_ram_str}/{ram_total}G RAM")
+         f", {free_ram_str}/{int(ram_total)}G RAM")
 
     if available_gpus > 0:
         msg1('Suggested srun command für single-GPU job:')
