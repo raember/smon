@@ -1,0 +1,22 @@
+[project]
+name = "smon"
+version = "1.0"
+authors = [
+    { name = "Raphael Emberger", email = "embe@zhaw.ch" },
+]
+description = "SLURM job and resources monitoring"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+"Homepage" = "https://github.zhaw.ch/CAI-Infrastructure/slurm-info/"
+"Bug Tracker" = "https://github.zhaw.ch/CAI-Infrastructure/slurm-info/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "python-dateutil", "docker-py"]  # "pyslurm>=19.05.0.0"
+build-backend = "setuptools.build_meta"

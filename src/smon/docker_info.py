@@ -3,7 +3,7 @@ import docker
 from docker.models.containers import Container
 from pandas import DataFrame, Series
 
-from src.logging import FMT_INFO1, FMT_RST
+from smon.log import FMT_INFO1, FMT_RST
 
 # client = Client(base_url='unix://var/run/docker.sock')
 client = docker.from_env()
@@ -38,7 +38,11 @@ def get_running_containers(gpu_info: DataFrame) -> DataFrame:
                     gpu_uuids = []
                 else:
                     for gpu_uuid in gpu_uuids_str.split(','):
-                        gpu_uuids.append(gpu_info[gpu_info['uuid'] == gpu_uuid].index.item())
+                        gpu = gpu_info[gpu_info['uuid'] == gpu_uuid]
+                        if len(gpu) != 1:
+                            # If inside a slurm session, we can't see all resources!
+                            continue
+                        gpu_uuids.append(gpu.index.item())
                 break
         container_info['GPUs'] = gpu_uuids
         containers.append(container_info)

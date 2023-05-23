@@ -1,9 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Callable, Dict
 
 from psutil import Process
-
-from src.logging import FMT_INFO1, FMT_RST
+from smon.log import FMT_INFO1, FMT_RST
 
 
 def find_parent(process: Process, branches: Dict[Callable[[Process], bool], Callable[[Process], None]]):
@@ -56,3 +55,32 @@ def round_down(n: int, threshold: int = 0b11) -> int:
         power += 1
         n = n >> 1
     return n << power
+
+
+def strtdelta(delta: timedelta) -> str:
+    days = delta.days
+    hours, rem = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    s_days = f"{days} day{'s' if days > 1 else ''}, " if days > 0 else ''
+    return f"{s_days}{hours:02}:{minutes:02}:{seconds:02}"
+
+
+def strmbytes(n: float, i: bool = True) -> str:
+    if int(n) == n:
+        n = int(n)
+    n_g = n / (1024 if i else 1000)
+    if n_g >= 1.0:
+        return strgbytes(n_g, i)
+    if int(n) == n:
+        n_s = f"{int(n)}"
+    else:
+        n_s = f"{n:.1f}"
+    return f"{n_s}M{'i' if i else ''}B"
+
+
+def strgbytes(n: float, i: bool = True) -> str:
+    if int(n) == n:
+        n_s = f"{int(n)}"
+    else:
+        n_s = f"{n:.1f}"
+    return f"{n_s}G{'i' if i else ''}B"

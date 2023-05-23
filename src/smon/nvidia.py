@@ -2,8 +2,8 @@ import subprocess
 from typing import List
 
 from pandas import DataFrame, read_csv, Series
-
-from src.logging import FMT_RST, FMT_INFO1
+from smon.log import FMT_RST, FMT_INFO1
+from smon.util import strmbytes
 
 # https://docs.nvidia.com/deploy/nvml-api/group__nvmlClocksThrottleReasons.html
 NVIDIA_CLOCK_SPEED_THROTTLE_REASONS = [
@@ -173,8 +173,8 @@ def gpu_to_string(gpu_info: Series, gpu_id: int, fmt_info: str = FMT_INFO1) -> s
     temp_gpu = f'{fmt_info}{gpu_info["temperature.gpu"]}°C{FMT_RST}'
     temp_mem = f'{fmt_info}{gpu_info["temperature.memory"]}°C{FMT_RST}'
     load_util = f'{fmt_info}{gpu_info["utilization.gpu [%]"]}%{FMT_RST}'
-    mem_used = f'{fmt_info}{gpu_info["memory.used [MiB]"]}MiB{FMT_RST}'
-    mem_total = f'{fmt_info}{gpu_info["memory.total [MiB]"]}MiB'
+    mem_used = f'{fmt_info}{strmbytes(gpu_info["memory.used [MiB]"])}{FMT_RST}'
+    mem_total = f'{fmt_info}{strmbytes(gpu_info["memory.total [MiB]"])}'
     mem_util = f'{fmt_info}{gpu_info["utilization.gpu [%]"]}%{FMT_RST}'
     return f'GPU:{fmt_info}{gpu_id}{FMT_RST}' \
            f' - {gpu_info["name"]}' \
