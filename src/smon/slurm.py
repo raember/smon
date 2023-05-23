@@ -3,13 +3,32 @@ import math
 import pwd
 import re
 import subprocess
+from datetime import timedelta, datetime
 from typing import Tuple, List
 
 from pandas import DataFrame, Series
 from psutil import Process
 from pyslurm import job, node, partition, powercap, statistics
+from smon.log import FMT_RST, FMT_INFO1
+from smon.util import round_down, strtdelta
 
-from src.logging import FMT_RST, FMT_INFO1
+NODE = list(node().get().values())[0]
+CPU_TOTAL = NODE['cpus']
+CPU_USED = NODE['alloc_cpus']
+CPU_FREE = CPU_TOTAL - CPU_USED
+MEM_TOTAL = int(NODE['real_memory'] / 1024)
+MEM_FREE = NODE['free_mem']
+MEM_USED = MEM_TOTAL - MEM_FREE
+# Why is the sum of reserved memory different from NODE['free_mem'] / 1024?
+# SJOBS[SJOBS['job_state'] == 'RUNNING']['pn_min_memory'].sum() / 1024  # or 'min_memory_node'
+# Because oversubscription of memory is allowed!
+GPU_TOTAL = int(NODE['gres'][0].split(':')[-1])
+GPU_USED = int(NODE['gres_used'][0].split(':')[-1])
+GPU_FREE = GPU_TOTAL - GPU_USED
+CPU_SPARE_PER_GPU = 1
+MAX_CPU_PER_GPU = int(CPU_TOTAL / GPU_TOTAL - CPU_SPARE_PER_GPU)
+MEM_SPARE_PER_GPU = 1
+MAX_MEM_PER_GPU = MEM_TOTAL / GPU_TOTAL - MEM_SPARE_PER_GPU
 
 
 def _id_to_list(s: str) -> List[int]:
@@ -61,9 +80,10 @@ def get_jobs() -> DataFrame:
 
 def _query_to_dict(s: str) -> dict:
     d = {}
-    for tres in s.split(','):
-        k, v = tres.split('=', maxsplit=1)
-        d[k] = v
+    if s != 'None':
+        for tres in s.split(','):
+            k, v = tres.split('=', maxsplit=1)
+            d[k] = v
     return d
 
 
@@ -140,8 +160,7 @@ def get_jobs_pretty() -> DataFrame:
     return df
 
 
-def get_node() -> dict:
-    return node().get()
+SJOBS = get_jobs_pretty()
 
 
 def get_partition() -> dict:
@@ -186,10 +205,45 @@ def is_sjob_setup_sane(sid: Process) -> Tuple[bool, Process]:
 
 def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) -> str:
     is_not_running = sjob['job_state'] != 'RUNNING'
-    queue = " " + fmt_info + sjob['job_state'] + FMT_RST
+    reason = f" ({sjob['state_reason']})"
+    state = f" {fmt_info}{sjob['job_state']}{FMT_RST}{reason if reason != ' (None)' else ''}"
+    td_since_submit = datetime.now() - datetime.fromtimestamp(sjob["submit_time"])
+    td_since_started = timedelta(seconds=int(sjob["run_time"]))
     return f'SLURM job' \
-           f'{queue if is_not_running else ""}' \
+           f'{state if is_not_running else ""}' \
            f' {fmt_info}#{job_id}{FMT_RST}:' \
            f' "{fmt_info}{sjob["name"]}{FMT_RST}"' \
            f' by {fmt_info}{sjob["user"]}{FMT_RST}' \
-           f' (started {sjob["run_time"]} ago): {fmt_info}{sjob["command"]}{FMT_RST}'
+           f' ({f"submitted {strtdelta(td_since_submit)}" if is_not_running else f"started {strtdelta(td_since_started)}"} ago):' \
+           f' {fmt_info}{sjob["command"]}{FMT_RST}'
+
+
+def suggest_n_gpu_srun_cmd(n_gpu: int = 1, job_name: str = None, command: str = 'bash',
+                           vram: int = MAX_MEM_PER_GPU) -> str:
+    gpu_factor = max(1, n_gpu)
+    # CPU
+    cpu_sugg_per_gpu = int(CPU_FREE / gpu_factor) - CPU_SPARE_PER_GPU
+    cpu_sugg = round_down(min(cpu_sugg_per_gpu, MAX_CPU_PER_GPU) * gpu_factor, 0b111)
+    # RAM
+    mem_sugg_per_gpu = MEM_FREE / 1024 / gpu_factor
+    mem_sugg = round_down(int(min(mem_sugg_per_gpu, MAX_MEM_PER_GPU, vram * 1.5) * gpu_factor), 0b1111)
+    return res_to_srun_cmd(cpu_sugg, mem_sugg, n_gpu, job_name, command)
+
+
+def res_to_str(fmt_cpu: str, n_cpu: int, fmt_mem: str, mem: float, fmt_gpu: str, n_gpu: int,
+               total: bool = False) -> str:
+    if int(mem) == mem:
+        mem = int(mem)
+    s_mem = f'{mem:.1f}' if isinstance(mem, float) else str(mem)
+    return f'{fmt_cpu}{n_cpu}{FMT_RST}{f"/{CPU_TOTAL}" if total else ""} CPU{"s" if n_cpu != 1 else ""}, ' \
+           f'{fmt_mem}{s_mem}{"" if total else "G"}{FMT_RST}{f"/{MEM_TOTAL}G" if total else ""} RAM, ' \
+           f'{fmt_gpu}{n_gpu}{FMT_RST}{f"/{GPU_TOTAL}" if total else ""} GPU{"s" if n_gpu != 1 else ""}'
+
+
+def res_to_srun_cmd(n_cpu: int, mem: int, n_gpu: int, job_name: str = None, command: str = 'bash') -> str:
+    if int(mem) == mem:
+        mem = int(mem)
+    s_mem = f'{mem:.1f}' if isinstance(mem, float) else str(mem)
+    if job_name is None:
+        job_name = f'{FMT_INFO1}<jobname>{FMT_RST}'
+    return f'srun --pty --ntasks=1 --cpus-per-task={n_cpu} --mem={s_mem}G --gres=gpu:{n_gpu} --job-name={job_name} {command}'
