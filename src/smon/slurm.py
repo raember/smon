@@ -8,27 +8,9 @@ from typing import Tuple, List
 
 from pandas import DataFrame, Series
 from psutil import Process
-from pyslurm import job, node, partition, powercap, statistics
+from pyslurm import job, partition, powercap, statistics, node
 from smon.log import FMT_RST, FMT_INFO1
 from smon.util import round_down, strtdelta
-
-NODE = list(node().get().values())[0]
-CPU_TOTAL = NODE['cpus']
-CPU_USED = NODE['alloc_cpus']
-CPU_FREE = CPU_TOTAL - CPU_USED
-MEM_TOTAL = int(NODE['real_memory'] / 1024)
-MEM_FREE = NODE['free_mem']
-MEM_USED = MEM_TOTAL - MEM_FREE
-# Why is the sum of reserved memory different from NODE['free_mem'] / 1024?
-# SJOBS[SJOBS['job_state'] == 'RUNNING']['pn_min_memory'].sum() / 1024  # or 'min_memory_node'
-# Because oversubscription of memory is allowed!
-GPU_TOTAL = int(NODE['gres'][0].split(':')[-1])
-GPU_USED = int(NODE['gres_used'][0].split(':')[-1])
-GPU_FREE = GPU_TOTAL - GPU_USED
-CPU_SPARE_PER_GPU = 1
-MAX_CPU_PER_GPU = int(CPU_TOTAL / GPU_TOTAL - CPU_SPARE_PER_GPU)
-MEM_SPARE_PER_GPU = 1
-MAX_MEM_PER_GPU = MEM_TOTAL / GPU_TOTAL - MEM_SPARE_PER_GPU
 
 
 def _id_to_list(s: str) -> List[int]:
@@ -160,19 +142,41 @@ def get_jobs_pretty() -> DataFrame:
     return df
 
 
-SJOBS = get_jobs_pretty()
+def get_node() -> Series:
+    node_info = Series(list(node().get().values())[0])
+
+    def split_str_list_to_dict(l: List[str]) -> dict:
+        d = {}
+        for entry in l:
+            key, val = entry.split(':', maxsplit=1)
+            d[key] = int(val) if val.isdigit() else val
+        return d
+
+    node_info['gres'] = split_str_list_to_dict(node_info['gres'])
+    node_info['gres_used'] = split_str_list_to_dict(node_info['gres_used'])
+    return node_info
 
 
-def get_partition() -> dict:
-    return partition().get()
+def get_partition() -> Series:
+    d = list(partition().get().values())[0]
+    flags = d['flags']
+    del d['flags']
+    for key, val in flags.items():
+        d[f'flag_{key}'] = val
+    return Series(d)
 
 
-def get_powercap() -> dict:
-    return powercap().get()
+def get_powercap() -> Series:
+    return Series(powercap().get())
 
 
-def get_statistics() -> dict:
-    return statistics().get()
+def get_statistics() -> Tuple[Series, DataFrame, DataFrame]:
+    stats = statistics().get()
+    rpc_type_stats = stats['rpc_type_stats']
+    del stats['rpc_type_stats']
+    rpc_user_stats = stats['rpc_user_stats']
+    del stats['rpc_user_stats']
+    return Series(stats), DataFrame(rpc_type_stats).transpose(), DataFrame(rpc_user_stats).transpose()
 
 
 def jobid_to_pids(jobid: int) -> DataFrame:
@@ -219,25 +223,44 @@ def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) ->
 
 
 def suggest_n_gpu_srun_cmd(n_gpu: int = 1, job_name: str = None, command: str = 'bash',
-                           vram: int = MAX_MEM_PER_GPU) -> str:
+                           vram: int = -1, node_info: Series = None) -> str:
+    assert node_info is not None
+    cpu_total = node_info['cpus']
+    cpu_used = node_info['alloc_cpus']
+    cpu_free = cpu_total - cpu_used
+    mem_total = int(node_info['real_memory'] / 1024)
+    mem_free = node_info['free_mem']
+    # Why is the sum of reserved memory different from NODE['free_mem'] / 1024?
+    # SJOBS[SJOBS['job_state'] == 'RUNNING']['pn_min_memory'].sum() / 1024  # or 'min_memory_node'
+    # Because oversubscription of memory is allowed!
+    gpu_total = node_info['gres']['gpu']
+    cpu_spare_per_gpu = 1
+    max_cpu_per_gpu = int(cpu_total / gpu_total - cpu_spare_per_gpu)
+    mem_spare_per_gpu = 1
+    max_mem_per_gpu = mem_total / gpu_total - mem_spare_per_gpu
+    if vram < 0:
+        vram = max_mem_per_gpu
     gpu_factor = max(1, n_gpu)
     # CPU
-    cpu_sugg_per_gpu = int(CPU_FREE / gpu_factor) - CPU_SPARE_PER_GPU
-    cpu_sugg = round_down(min(cpu_sugg_per_gpu, MAX_CPU_PER_GPU) * gpu_factor, 0b111)
+    cpu_sugg_per_gpu = int(cpu_free / gpu_factor) - cpu_spare_per_gpu
+    cpu_sugg = round_down(min(cpu_sugg_per_gpu, max_cpu_per_gpu) * gpu_factor, 0b111)
     # RAM
-    mem_sugg_per_gpu = MEM_FREE / 1024 / gpu_factor
-    mem_sugg = round_down(int(min(mem_sugg_per_gpu, MAX_MEM_PER_GPU, vram * 1.5) * gpu_factor), 0b1111)
+    mem_sugg_per_gpu = mem_free / 1024 / gpu_factor
+    mem_sugg = round_down(int(min(mem_sugg_per_gpu, max_mem_per_gpu, vram * 1.5) * gpu_factor), 0b1111)
     return res_to_srun_cmd(cpu_sugg, mem_sugg, n_gpu, job_name, command)
 
 
-def res_to_str(fmt_cpu: str, n_cpu: int, fmt_mem: str, mem: float, fmt_gpu: str, n_gpu: int,
+def res_to_str(fmt_cpu: str, n_cpu: int, fmt_mem: str, mem: float, fmt_gpu: str, n_gpu: int, node_info: Series,
                total: bool = False) -> str:
     if int(mem) == mem:
         mem = int(mem)
+    cpu_total = node_info['cpus']
     s_mem = f'{mem:.1f}' if isinstance(mem, float) else str(mem)
-    return f'{fmt_cpu}{n_cpu}{FMT_RST}{f"/{CPU_TOTAL}" if total else ""} CPU{"s" if n_cpu != 1 else ""}, ' \
-           f'{fmt_mem}{s_mem}{"" if total else "G"}{FMT_RST}{f"/{MEM_TOTAL}G" if total else ""} RAM, ' \
-           f'{fmt_gpu}{n_gpu}{FMT_RST}{f"/{GPU_TOTAL}" if total else ""} GPU{"s" if n_gpu != 1 else ""}'
+    mem_total = int(node_info['real_memory'] / 1024)
+    gpu_total = node_info['gres']['gpu']
+    return f'{fmt_cpu}{n_cpu}{FMT_RST}{f"/{cpu_total}" if total else ""} CPU{"s" if n_cpu != 1 else ""}, ' \
+           f'{fmt_mem}{s_mem}{"" if total else "G"}{FMT_RST}{f"/{mem_total}G" if total else ""} RAM, ' \
+           f'{fmt_gpu}{n_gpu}{FMT_RST}{f"/{gpu_total}" if total else ""} GPU{"s" if n_gpu != 1 else ""}'
 
 
 def res_to_srun_cmd(n_cpu: int, mem: int, n_gpu: int, job_name: str = None, command: str = 'bash') -> str:

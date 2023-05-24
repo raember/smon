@@ -39,8 +39,8 @@ def process_to_string(process: Process, fmt_info: str = FMT_INFO1) -> str:
     user = ''
     if process.username() != 'root':
         user = f' by {fmt_info}{process.username()}{FMT_RST}'
-    start_time = datetime.utcfromtimestamp(process.create_time())
-    return f'"{process.name()}" (started {datetime.utcnow() - start_time} ago)' + user
+    start_time = datetime.fromtimestamp(process.create_time())
+    return f'"{process.name()}" (started {datetime.now() - start_time} ago)' + user
 
 
 def round_down(n: int, threshold: int = 0b11) -> int:
