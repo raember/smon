@@ -136,7 +136,7 @@ def nvidia_smi_gpu(fields: List[str] = None, units=False) -> DataFrame:
     if not units:
         opts.append('nounits')
     sproc = subprocess.Popen(
-        ['nvidia-smi', f'--query-gpu={",".join(fields)}', f'--format={",".join(opts)}'],
+        ['/usr/bin/nvidia-smi', f'--query-gpu={",".join(fields)}', f'--format={",".join(opts)}'],
         stdout=subprocess.PIPE
     )
     df = read_csv(sproc.stdout, sep=', ', engine='python')
@@ -162,7 +162,7 @@ def nvidia_smi_compute(fields: List[str] = None, units=False) -> DataFrame:
     if not units:
         opts.append('nounits')
     sproc = subprocess.Popen(
-        ['nvidia-smi', f'--query-compute-apps={",".join(fields)}', f'--format={",".join(opts)}'],
+        ['/usr/bin/nvidia-smi', f'--query-compute-apps={",".join(fields)}', f'--format={",".join(opts)}'],
         stdout=subprocess.PIPE
     )
     df = read_csv(sproc.stdout, sep=', ', engine='python')

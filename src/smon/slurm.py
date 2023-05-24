@@ -59,7 +59,7 @@ def get_jobs() -> DataFrame:
     df['CPU_IDs'] = None
     df['Mem'] = None
     df['GRES'] = None
-    sproc = subprocess.Popen(['scontrol', 'show', 'job', '-do'], stdout=subprocess.PIPE)
+    sproc = subprocess.Popen(['/usr/bin/scontrol', 'show', 'job', '-do'], stdout=subprocess.PIPE)
     for sjob_line in sproc.stdout.readlines():
         line = sjob_line.decode().strip('\n')
         m_job_id = re.match(r'^JobId=(\d+)', line)
@@ -176,7 +176,7 @@ def get_statistics() -> dict:
 
 
 def jobid_to_pids(jobid: int) -> DataFrame:
-    cmd = subprocess.run(('scontrol', 'listpids', str(jobid)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = subprocess.run(('/usr/bin/scontrol', 'listpids', str(jobid)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pids = []
     for line in cmd.stdout.decode().splitlines()[1:]:
         pid, job_id_2, step_id, local_id, global_id = tuple(
