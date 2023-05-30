@@ -1,7 +1,6 @@
 all: install clean
 install:
-	pip install .
-install_e:
-	pip install -e .
+	/usr/bin/python3 -m pip install .
+	install -m755 ${CURDIR}/bin/smon /usr/local/bin
 clean:
 	rm -rf build/ src/smon.egg-info/

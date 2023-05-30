@@ -11,7 +11,7 @@ from traceback import format_exc
 from typing import Tuple
 
 from pandas import DataFrame, Series
-from psutil import Process
+from psutil import Process, NoSuchProcess
 from smon.docker_info import get_running_containers, container_to_string
 from smon.log import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
     FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1, warn1, warn2
@@ -69,11 +69,13 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 'ctime': datetime.fromtimestamp(os.path.getctime(fp)),
             })
         files = DataFrame(files)
-        for user in files['user'].unique():
-            msg2(f'{FMT_INFO1}{user}{FMT_RST}')
-            user_dumps = files[files['user'] == user]
-            for _, (path, _, host, mtime, ctime) in user_dumps.sort_values(by=['mtime'], ascending=False).iterrows():
-                msg3(f'{path} - {str(mtime)}')
+        if len(files) > 0:
+            for user in files['user'].unique():
+                msg2(f'{FMT_INFO1}{user}{FMT_RST}')
+                user_dumps = files[files['user'] == user]
+                for _, (path, _, host, mtime, ctime) in user_dumps.sort_values(by=['mtime'],
+                                                                               ascending=False).iterrows():
+                    msg3(f'{path} - {str(mtime)}')
         exit(0)
 
     data = {}
@@ -194,14 +196,22 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         msg1(slurm_job_to_string(sjob, job_id, fmt_info))
 
         # Check if SLURM job has been set up correctly
-        is_sane, slurm_ppid = is_sjob_setup_sane(Process(sjob['alloc_sid'])) if not is_dump else (
-        sjobs.loc[job_id, 'is_sane'], sjobs.loc[job_id, 'ppid'])
+        if not is_dump:
+            try:
+                sjob_main_pid = Process(sjob['alloc_sid'])
+                is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
+            except NoSuchProcess as ex_nsp:
+                warn2(f"SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
+                is_sane = False
+                slurm_ppid = None
+        else:
+            is_sane, slurm_ppid = sjobs.loc[job_id, 'is_sane'], sjobs.loc[job_id, 'ppid']
         if not is_sane:
             if slurm_ppid is not None:
                 err2(
                     f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
             else:
-                warn2(f'{fmt_bad}SLURM job cannot be determined!')
+                warn2(f'{fmt_warn}SLURM job cannot be determined!')
         sjobs2.loc[job_id, 'is_sane'] = is_sane
         sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
         sjobs.loc[job_id, 'is_sane'] = is_sane
@@ -461,5 +471,6 @@ if __name__ == '__main__':
         with tempfile.NamedTemporaryFile(prefix=f'smon_{gethostname()}_{os.getenv("USER")}_', suffix='.pkl',
                                          delete=False) as tfp:
             pickle.dump(dump, tfp)
+            os.chmod(tfp, 0o664)
             msg1(
                 f'Created a dump file at {FMT_INFO2}{tfp.name}{FMT_RST} - Please send this to {FMT_INFO2}embe{FMT_RST}.')
