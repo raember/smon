@@ -431,7 +431,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
          f", {free_ram_str}/{strmbytes(node['real_memory'], False)} RAM")
 
     if gpu_free > 0:
-        msg1('Suggested srun command für single-GPU job:')
+        msg1('Suggested srun command for single-GPU job:')
         msg2(f"$ {suggest_n_gpu_srun_cmd(vram=int(gpu_info.loc[0, 'memory.total [MiB]'] / 1000), node_info=node)}")
 
     return sjobs, node, partition, stats, stats_type, stats_user, gpu_info, gpu_processes, containers
