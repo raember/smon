@@ -19,7 +19,7 @@ from smon.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_T
 from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_node, \
     get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd
 from smon.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
-    strtdelta, strmbytes
+    strtdelta, strmbytes, strgbytes
 
 sjobs: DataFrame = None
 node: Series = None
@@ -422,7 +422,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
     # RAM
     ram_total = node['real_memory']
     available_ram = int(ram_total - sum(sjobs['pn_min_memory'].to_list())) / 1024
-    free_ram_str = f"{FMT_INFO1}{strmbytes(available_ram, False)}{FMT_RST}"
+    free_ram_str = f"{FMT_INFO1}{strgbytes(available_ram, False)}{FMT_RST}"
 
     msg2(f"Free resources: {free_gpu_str_slurm}/{gpu_total} GPUs"
          f" ({FMT_INFO1}{reserved_nvidia_gpu_n}{FMT_RST}/{gpu_used} using the GPU)"
