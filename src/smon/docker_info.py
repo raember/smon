@@ -5,6 +5,39 @@ from pandas import DataFrame, Series
 
 from smon.log import FMT_INFO1, FMT_RST
 
+CONTAINER_COLUMNS = [
+    'Id', 'Created', 'Path', 'Args', 'Image', 'ResolvConfPath', 'HostnamePath', 'HostsPath', 'LogPath', 'Name',
+    'RestartCount', 'Driver', 'Platform', 'MountLabel', 'ProcessLabel', 'AppArmorProfile', 'ExecIDs', 'Mounts',
+    'IdShort', 'State.Status', 'State.Running', 'State.Paused', 'State.Restarting', 'State.OOMKilled', 'State.Dead',
+    'State.Pid', 'State.ExitCode', 'State.Error', 'State.StartedAt', 'State.FinishedAt', 'HostConfig.Binds',
+    'HostConfig.ContainerIDFile', 'HostConfig.LogConfig', 'HostConfig.NetworkMode', 'HostConfig.PortBindings',
+    'HostConfig.RestartPolicy', 'HostConfig.AutoRemove', 'HostConfig.VolumeDriver', 'HostConfig.VolumesFrom',
+    'HostConfig.CapAdd', 'HostConfig.CapDrop', 'HostConfig.CgroupnsMode', 'HostConfig.Dns', 'HostConfig.DnsOptions',
+    'HostConfig.DnsSearch', 'HostConfig.ExtraHosts', 'HostConfig.GroupAdd', 'HostConfig.IpcMode', 'HostConfig.Cgroup',
+    'HostConfig.Links', 'HostConfig.OomScoreAdj', 'HostConfig.PidMode', 'HostConfig.Privileged',
+    'HostConfig.PublishAllPorts', 'HostConfig.ReadonlyRootfs', 'HostConfig.SecurityOpt', 'HostConfig.UTSMode',
+    'HostConfig.UsernsMode', 'HostConfig.ShmSize', 'HostConfig.Runtime', 'HostConfig.ConsoleSize',
+    'HostConfig.Isolation', 'HostConfig.CpuShares', 'HostConfig.Memory', 'HostConfig.NanoCpus',
+    'HostConfig.CgroupParent', 'HostConfig.BlkioWeight', 'HostConfig.BlkioWeightDevice',
+    'HostConfig.BlkioDeviceReadBps', 'HostConfig.BlkioDeviceWriteBps', 'HostConfig.BlkioDeviceReadIOps',
+    'HostConfig.BlkioDeviceWriteIOps', 'HostConfig.CpuPeriod', 'HostConfig.CpuQuota', 'HostConfig.CpuRealtimePeriod',
+    'HostConfig.CpuRealtimeRuntime', 'HostConfig.CpusetCpus', 'HostConfig.CpusetMems', 'HostConfig.Devices',
+    'HostConfig.DeviceCgroupRules', 'HostConfig.DeviceRequests', 'HostConfig.KernelMemory',
+    'HostConfig.KernelMemoryTCP', 'HostConfig.MemoryReservation', 'HostConfig.MemorySwap',
+    'HostConfig.MemorySwappiness', 'HostConfig.OomKillDisable', 'HostConfig.PidsLimit', 'HostConfig.Ulimits',
+    'HostConfig.CpuCount', 'HostConfig.CpuPercent', 'HostConfig.IOMaximumIOps', 'HostConfig.IOMaximumBandwidth',
+    'HostConfig.MaskedPaths', 'HostConfig.ReadonlyPaths', 'GraphDriver.Data', 'GraphDriver.Name', 'Config.Hostname',
+    'Config.Domainname', 'Config.User', 'Config.AttachStdin', 'Config.AttachStdout', 'Config.AttachStderr',
+    'Config.ExposedPorts', 'Config.Tty', 'Config.OpenStdin', 'Config.StdinOnce', 'Config.Env', 'Config.Cmd',
+    'Config.Image', 'Config.Volumes', 'Config.WorkingDir', 'Config.Entrypoint', 'Config.OnBuild', 'Config.Labels',
+    'NetworkSettings.Bridge', 'NetworkSettings.SandboxID', 'NetworkSettings.HairpinMode',
+    'NetworkSettings.LinkLocalIPv6Address', 'NetworkSettings.LinkLocalIPv6PrefixLen', 'NetworkSettings.Ports',
+    'NetworkSettings.SandboxKey', 'NetworkSettings.SecondaryIPAddresses', 'NetworkSettings.SecondaryIPv6Addresses',
+    'NetworkSettings.EndpointID', 'NetworkSettings.Gateway', 'NetworkSettings.GlobalIPv6Address',
+    'NetworkSettings.GlobalIPv6PrefixLen', 'NetworkSettings.IPAddress', 'NetworkSettings.IPPrefixLen',
+    'NetworkSettings.IPv6Gateway', 'NetworkSettings.MacAddress', 'NetworkSettings.Networks', 'GPUs'
+]
+
 # client = Client(base_url='unix://var/run/docker.sock')
 client = docker.from_env()
 
@@ -55,7 +88,7 @@ def get_running_containers(gpu_info: DataFrame) -> DataFrame:
         # print(f"[{ec}]Nvidia-smi: {s.decode()}")
         # ec, s = container.exec_run('bash -c "ls -l /proc/driver/nvidia/gpus | tail -n +2 | wc -l"', tty=True)
         # print(f"[{ec}]ls /proc/driver/nvidia/gpus: {s.decode()}")
-    df = DataFrame(containers)
+    df = DataFrame(containers, columns=CONTAINER_COLUMNS)
     return df.set_index('Id')
 
 
