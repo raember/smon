@@ -471,6 +471,6 @@ if __name__ == '__main__':
         with tempfile.NamedTemporaryFile(prefix=f'smon_{gethostname()}_{os.getenv("USER")}_', suffix='.pkl',
                                          delete=False) as tfp:
             pickle.dump(dump, tfp)
-            os.chmod(tfp, 0o664)
+            os.chmod(tfp.name, 0o664)
             msg1(
                 f'Created a dump file at {FMT_INFO2}{tfp.name}{FMT_RST} - Please send this to {FMT_INFO2}embe{FMT_RST}.')
