@@ -43,6 +43,10 @@ def msg5(s: str):
     msg(s, 4, BLUE)
 
 
+def msg6(s: str):
+    msg(s, 5, BLUE)
+
+
 WARN = f"\033[1;{YELLOW}m"
 
 
@@ -70,6 +74,10 @@ def warn5(s: str):
     warn(s, 4)
 
 
+def warn6(s: str):
+    warn(s, 5)
+
+
 ERR = f"\033[1;{RED}m"
 
 
@@ -95,3 +103,15 @@ def err4(s: str):
 
 def err5(s: str):
     err(s, 4)
+
+
+def err6(s: str):
+    err(s, 5)
+
+
+def bar(s: str, level: int, color: int):
+    print(f"  {' ' * level}\033[1;{color}m|\033[m {s}\033[m")
+
+
+def blue_bar(s: str, level: int):
+    bar(s, level, BLUE)
