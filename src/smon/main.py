@@ -15,14 +15,12 @@ from psutil import Process, NoSuchProcess
 from smon.docker_info import get_running_containers, container_to_string
 from smon.log import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
     FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1, warn1, warn2, \
-    MAGENTA
+    blue_bar, MAGENTA
 from smon.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
 from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_node, \
     get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd
 from smon.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
     strtdelta, strmbytes, strgbytes
-
-from src.smon.log import blue_bar
 
 sjobs: DataFrame = None
 node: Series = None
