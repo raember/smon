@@ -175,7 +175,6 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         gpu_processes['container'] = None
         gpu_processes['cpu_util'] = None
         gpu_processes['create_time'] = None
-        gpu_processes['name'] = None
 
     # Keep track of already identified/processed information
     gpu_info2 = gpu_info.copy()
@@ -263,28 +262,37 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
             else:
                 gpu_info.loc[gpu_id_internal, 'in_use'] = True
                 gpu_info2.loc[gpu_id_internal, 'in_use'] = True
-            gpu_info.at[gpu_id_internal, 'pids'] = gpu_procs_actual.index.to_list()
-            gpu_info2.at[gpu_id_internal, 'pids'] = gpu_procs_actual.index.to_list()
+            gpu_info.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
+            gpu_info2.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
             # Check all associated GPU processes
             for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
                 gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
+                proc_name = f'"{gpu_proc["process_name"]}"'
+                start_time, proc_cpu_util = None, None
+                does_pid_exist = True
                 if not is_dump:
-                    proc = Process(gpu_proc['pid'])
-                    proc_name = proc.name()
-                    gpu_processes.loc[gpu_proc_pid, 'name'] = proc_name
-                    start_time = datetime.fromtimestamp(proc.create_time())
-                    gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
-                    proc_cpu_util = proc.cpu_percent(0.2) / 100 * proc.cpu_num()
-                    gpu_processes.loc[gpu_proc_pid, 'cpu_util'] = proc_cpu_util
-                    sjob_proc = proc.parent()
+                    try:
+                        proc = Process(gpu_proc['pid'])
+                        start_time = datetime.fromtimestamp(proc.create_time())
+                        gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
+                        proc_cpu_util = proc.cpu_percent(0.2) / 100 * proc.cpu_num()
+                        gpu_processes.loc[gpu_proc_pid, 'cpu_util'] = proc_cpu_util
+                        sjob_proc = proc.parent()
+                    except NoSuchProcess:
+                        # warn4(f"GPU process {gpu_proc['pid']} could not be found!")
+                        proc_name = gpu_proc["process_name"]
+                        sjob_proc = None
+                        does_pid_exist = False
                 else:
-                    proc_name = gpu_processes.loc[gpu_proc_pid, 'name']
                     start_time = gpu_processes.loc[gpu_proc_pid, 'create_time']
                     proc_cpu_util = gpu_processes.loc[gpu_proc_pid, 'cpu_util']
                     sjob_proc = Process(1)
+                time_info = ')'
+                if start_time is not None:
+                    time_info = f', {fmt_info}{proc_cpu_util:.1f}%{FMT_RST} CPU), started {strtdelta(datetime.now() - start_time)} ago'
 
                 msg4(
-                    f'"{proc_name}" ({fmt_info}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST}, {fmt_info}{proc_cpu_util:.1f}%{FMT_RST} CPU), started {strtdelta(datetime.now() - start_time)} ago')
+                    f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name} ({fmt_info}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST}' + time_info)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
                         msg5('Running inside SLURM job')
@@ -308,8 +316,8 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
                         break
                     sjob_proc = sjob_proc.parent()
-                if sjob_proc is None:
-                    err5('Process is neither within a docker not inside a SLURM job!')
+                if does_pid_exist and sjob_proc is None:
+                    err5('Process is neither within a docker nor inside a SLURM job!')
 
             # Remove from the list of GPUs
             gpu_info2 = gpu_info2.drop(gpu_id_internal)
@@ -430,7 +438,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
          f", {free_cpu_str}/{n_cpus} CPUs"
          f", {free_ram_str}/{strmbytes(node['real_memory'], False)} RAM")
 
-    if gpu_free > 0:
+    if gpu_free > 0 and len(gpu_info) > 0:
         msg1('Suggested srun command for single-GPU job:')
         msg2(f"$ {suggest_n_gpu_srun_cmd(vram=int(gpu_info.loc[0, 'memory.total [MiB]'] / 1000), node_info=node)}")
 
