@@ -4,6 +4,15 @@ YELLOW = 33
 BLUE = 34
 MAGENTA = 35
 CYAN = 36
+LIGHT_GRAY = 37
+DARK_GRAY = 90
+LIGHT_RED = 91
+LIGHT_GREEN = 92
+LIGHT_YELLOW = 93
+LIGHT_BLUE = 94
+LIGHT_MAGENTA = 95
+LIGHT_CYAN = 96
+WHITE = 97
 
 FMT_INFO1 = f'\033[{BLUE}m'
 FMT_INFO2 = f'\033[{BLUE};1m'
@@ -110,7 +119,7 @@ def err6(s: str):
 
 
 def bar(s: str, level: int, color: int):
-    print(f"  {' ' * level}\033[1;{color}m|\033[m {s}\033[m")
+    print(f" {' ' * level}\033[1;{color}m|\033[m {s}\033[m")
 
 
 def blue_bar(s: str, level: int):

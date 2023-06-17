@@ -15,7 +15,7 @@ from psutil import Process, NoSuchProcess
 from smon.docker_info import get_running_containers, container_to_string
 from smon.log import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
     FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1, warn1, warn2, \
-    blue_bar, MAGENTA
+    blue_bar, MAGENTA, LIGHT_GRAY
 from smon.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
 from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_node, \
     get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd
@@ -275,7 +275,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
             # Check all associated GPU processes
             for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
                 gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
-                proc_name = f'{CMD_PREFIX} {gpu_proc["process_name"]}'
+                proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{gpu_proc["process_name"]}{FMT_RST}'
                 start_time, cpu_cnt, proc_cpu_util, proc_ram, proc_ram_perc = None, None, None, None, None
                 does_pid_exist = True
                 vram = gpu_proc["used_gpu_memory [MiB]"]
@@ -292,7 +292,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         proc_name = ' '.join(proc.cmdline())
                         if len(proc_name) > STR_LEN_MAX:
                             proc_name = proc_name[:STR_LEN_MAX - 3] + '...'
-                        proc_name = f'{CMD_PREFIX} {proc_name}'
+                        proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{proc_name}{FMT_RST}'
                         start_time = datetime.fromtimestamp(proc.create_time())
                         gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
                         proc_ram = float(proc.memory_info().vms) / 1000 ** 3
@@ -330,7 +330,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 if start_time is not None:
                     proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
 
-                msg4(f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name} ')
+                msg4(f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name}{FMT_RST}')
                 blue_bar(proc_details, 4)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
