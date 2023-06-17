@@ -470,7 +470,8 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
     free_cpu_str = f'{FMT_INFO1}{available_cpus}{FMT_RST}'
     # RAM
     ram_total = node['real_memory']
-    available_ram = int(ram_total - sum(sjobs['pn_min_memory'].to_list())) / 1024
+    running_sjobs = sjobs[sjobs['job_state'] == 'RUNNING']
+    available_ram = int(ram_total - sum(running_sjobs['pn_min_memory'].to_list())) / 1024
     free_ram_str = f"{FMT_INFO1}{strgbytes(available_ram, False)}{FMT_RST}"
 
     msg2(f"Free resources: {free_gpu_str_slurm}/{gpu_total} GPUs"
