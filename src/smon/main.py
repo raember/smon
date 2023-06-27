@@ -333,6 +333,23 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                     proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
 
                 msg4(f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name}{FMT_RST}')
+                if extended:
+                    # Print out all args of the running job
+                    proc_args = sjob_proc.cmdline()
+                    blue_bar('Args:', 4)
+                    has_one_arg = True
+                    arg = ''
+                    for proc_arg in proc_args:
+                        arg_line = (arg + ' ' + proc_arg).strip()
+                        if (len(arg) <= STR_LEN_MAX or has_one_arg) and STR_LEN_MAX < len(arg_line):
+                            blue_bar('  ' + arg, 4)
+                            arg = proc_arg
+                            has_one_arg = True
+                        else:
+                            arg = arg_line
+                            has_one_arg = False
+                    if arg != '':
+                        blue_bar('  ' + arg, 4)
                 blue_bar(proc_details, 4)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
