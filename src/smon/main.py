@@ -161,6 +161,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
 
     # Preprocess
     if not is_dump:
+        sjobs['is_interactive_bash_session'] = None
         sjobs['is_sane'] = None
         sjobs['ppid'] = None
 
@@ -203,24 +204,32 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         msg1(slurm_job_to_string(sjob, job_id, fmt_info))
 
         # Check if SLURM job has been set up correctly
+        is_interactive_bash_session = True
         if not is_dump:
             try:
                 sjob_main_pid = Process(sjob['alloc_sid'])
+                is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
+                if not is_interactive_bash_session:
+                    warn2('Is an interactive bash session')
                 is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
             except NoSuchProcess as ex_nsp:
                 warn2(f"SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
                 is_sane = False
                 slurm_ppid = None
         else:
-            is_sane, slurm_ppid = sjobs.loc[job_id, 'is_sane'], sjobs.loc[job_id, 'ppid']
+            is_sane = sjobs.loc[job_id, 'is_sane']
+            slurm_ppid = sjobs.loc[job_id, 'ppid']
+            is_interactive_bash_session = sjobs.loc[job_id, 'is_interactive_bash_session']
         if not is_sane:
             if slurm_ppid is not None:
                 err2(
                     f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
             else:
-                warn2(f'{fmt_warn}SLURM job cannot be determined!')
+                warn2(f'{fmt_warn}SLURM session cannot be determined!')
+        sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
         sjobs2.loc[job_id, 'is_sane'] = is_sane
         sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
+        sjobs.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
         sjobs.loc[job_id, 'is_sane'] = is_sane
         sjobs.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
 
@@ -393,6 +402,10 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
 
             # Display basic information about SLURM job
             msg1(slurm_job_to_string(sjob, job_id, fmt_info))
+            sjob_main_pid = Process(sjob['alloc_sid'])
+            is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
+            if not is_interactive_bash_session:
+                warn2('Is an interactive bash session')
 
             sjob_gres = list(range(int(sjob.get('tres_per_node', 'gpu:0').split(':')[-1])))
             res = sjob['tres_req']
