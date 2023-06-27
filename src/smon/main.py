@@ -281,10 +281,10 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 vram = gpu_proc["used_gpu_memory [MiB]"]
                 vram_perc = vram / gpu_info_["memory.total [MiB]"]
                 fmt_vram = fmt_good
-                if vram_perc > PERCENTAGE_WARN1:
-                    fmt_vram = fmt_warn
-                elif vram_perc > PERCENTAGE_WARN2:
+                if vram_perc > PERCENTAGE_WARN2:
                     fmt_vram = fmt_bad
+                elif vram_perc > PERCENTAGE_WARN1:
+                    fmt_vram = fmt_warn
                 proc_details = f'{fmt_vram}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST} VRAM'
                 if not is_dump:
                     try:
@@ -295,7 +295,9 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{proc_name}{FMT_RST}'
                         start_time = datetime.fromtimestamp(proc.create_time())
                         gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
-                        proc_ram = float(proc.memory_info().vms) / 1000 ** 3
+                        proc_mem = proc.memory_info()
+                        proc_ram = float(proc_mem.rss) / 1000 ** 3
+                        # proc_ram_virt = float(proc_mem.vms) / 1000 ** 3
                         gpu_processes.loc[gpu_proc_pid, 'ram'] = proc_ram
                         proc_ram_perc = proc_ram / res_mem * 100
                         cpu_cnt = proc.cpu_num()
@@ -318,10 +320,10 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 if proc_ram is not None:
                     ram_s = f'{proc_ram:.1f}' if int(proc_ram) != proc_ram else int(proc_ram)
                     fmt_ram = fmt_good
-                    if proc_ram_perc > PERCENTAGE_WARN1:
-                        fmt_ram = fmt_warn
-                    elif proc_ram_perc > PERCENTAGE_WARN2:
+                    if proc_ram_perc > PERCENTAGE_WARN2:
                         fmt_ram = fmt_bad
+                    elif proc_ram_perc > PERCENTAGE_WARN1:
+                        fmt_ram = fmt_warn
                     proc_details += f', {fmt_ram}{ram_s}{FMT_RST}/{strgbytes(res_mem, False)} RAM'
                     # ({proc_ram_perc:.1f}%)'
                 if cpu_cnt is not None:
