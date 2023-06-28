@@ -180,11 +180,11 @@ def query_server():
 
     running_containers = containers[containers['State.Running']]
     docker_infos = DockerInfos(num_containers=len(running_containers))
-    for _, container in running_containers.iterrows():
+    for container_id, container in running_containers.iterrows():
         docker_infos.containers.append(DockerContainer(
             name=container['Name'][1:], id=container['IdShort'], image=container['Image'], path=container['Path'],
             runtime=datetime.datetime.utcnow() - parse(container['State.StartedAt']).replace(tzinfo=None),
-            is_using_gpu=container['Id'] in container2pids.keys(), pids=container2pids.get(container['Id'])
+            is_using_gpu=container_id in container2pids.keys(), pids=container2pids.get(container_id)
         ))
 
     ### SLURM INFOS
@@ -193,10 +193,10 @@ def query_server():
     offenders = defaultdict(list)
     slurm_infos = SlurmInfo(num_jobs=len(sjobs))
     for job_id, sjob in sjobs.iterrows():
-        username, uid = tuple(sjob["UserId"].strip(')').split('('))
         slurm_job = SlurmJob(
             name=sjob['name'], id=job_id, username=sjob['user'], user_group_id=sjob['group_id'],
-            state=sjob['job_state'], runtime=datetime.datetime.utcnow() - sjob['start_time'],
+            state=sjob['job_state'],
+            runtime=datetime.datetime.utcnow() - datetime.datetime.utcfromtimestamp(sjob['start_time']),
             is_interactive_bash=sjob['is_interactive_bash_session'],
             num_cpus=int(sjob['tres_req'].get('cpu', len(sjob['CPU_IDs']))), num_tasks=sjob['num_tasks'],
             cpus_per_task=int(sjob['cpus_per_task']), n_gpus=sjob['gpus'], min_memory=sjob['pn_min_memory'] / 1024,
@@ -204,20 +204,20 @@ def query_server():
         )
         slurm_job.pid.append(sjob['alloc_sid'])
         if slurm_job.not_using_gpu:
-            offenders[username].append(sjob)
+            offenders[sjob['user']].append(sjob)
         else:
-            user_stats[username].append(sjob)
+            user_stats[sjob['user']].append(sjob)
         slurm_infos.jobs.append(slurm_job)
 
     if len(user_stats) > 0:
         for user, jobs in user_stats.items():
-            s_jobs = [f"{job['JobName']}({job['JobId']})" for job in jobs]
+            s_jobs = [f"{job['name']}({job['job_id']})" for job in jobs]
             messages.append(MessageUser(user=user, message="is running GPU process", metadata={'jobs': s_jobs},
                                         severity=MessageUser.LEVEL_INFO))
 
     if len(offenders) > 0:
         for offender, jobs in offenders.items():
-            s_jobs = [f"{job['JobName']}({job['JobId']})" for job in jobs]
+            s_jobs = [f"{job['name']}({job['job_id']})" for job in jobs]
             messages.append(MessageUser(user=offender, message="not using active slurm job", metadata={'jobs': s_jobs},
                                         severity=MessageUser.LEVEL_WARN))
 
