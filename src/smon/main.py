@@ -107,6 +107,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         SJOB_NAME = data.get('env', {}).get('SLURM_JOB_NAME')
         SJOB_ID = data.get('env', {}).get('SLURM_JOB_ID')
         SJOB_USER = data.get('env', {}).get('SLURM_JOB_USER')
+    print_prog_args = extended
     if we_are_inside_slurm := SJOB_NAME is not None and SJOB_ID is not None and SJOB_USER is not None:
         warn1(
             f"Cannot see all resources from within SLURM job {SJOB_NAME}:{SJOB_ID}! Only showing information for current SLURM job!")
@@ -295,12 +296,16 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 elif vram_perc > PERCENTAGE_WARN1:
                     fmt_vram = fmt_warn
                 proc_details = f'{fmt_vram}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST} VRAM'
+                proc = None
                 if not is_dump:
                     try:
                         proc = Process(gpu_proc['pid'])
-                        proc_name = ' '.join(proc.cmdline())
-                        if len(proc_name) > STR_LEN_MAX:
-                            proc_name = proc_name[:STR_LEN_MAX - 3] + '...'
+                        if not print_prog_args:
+                            proc_name = ' '.join(proc.cmdline())
+                            if len(proc_name) > STR_LEN_MAX:
+                                proc_name = proc_name[:STR_LEN_MAX - 3] + '...'
+                        else:
+                            proc_name = proc.name()
                         proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{proc_name}{FMT_RST}'
                         start_time = datetime.fromtimestamp(proc.create_time())
                         gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
@@ -342,23 +347,22 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                     proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
 
                 msg4(f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name}{FMT_RST}')
-                if extended:
+                if print_prog_args and proc is not None:
                     # Print out all args of the running job
-                    proc_args = sjob_proc.cmdline()
-                    blue_bar('Args:', 4)
+                    proc_args = proc.cmdline()[1:]
                     has_one_arg = True
                     arg = ''
                     for proc_arg in proc_args:
                         arg_line = (arg + ' ' + proc_arg).strip()
                         if (len(arg) <= STR_LEN_MAX or has_one_arg) and STR_LEN_MAX < len(arg_line):
-                            blue_bar('  ' + arg, 4)
+                            blue_bar(f'            \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
                             arg = proc_arg
                             has_one_arg = True
                         else:
                             arg = arg_line
                             has_one_arg = False
                     if arg != '':
-                        blue_bar('  ' + arg, 4)
+                        blue_bar(f'            \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
                 blue_bar(proc_details, 4)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
