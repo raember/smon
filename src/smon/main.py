@@ -166,6 +166,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         sjobs['is_interactive_bash_session'] = None
         sjobs['is_sane'] = None
         sjobs['ppid'] = None
+        sjobs['is_using_gpu'] = False
 
     # Trim the search space
     sjobs2 = sjobs.copy()
@@ -280,6 +281,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                     if cont['GPUs'] == sjob_gres:
                         msg5(f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
             else:
+                sjobs.loc[job_id, 'is_using_gpu'] = True
                 gpu_info.loc[gpu_id_internal, 'in_use'] = True
                 gpu_info2.loc[gpu_id_internal, 'in_use'] = True
             gpu_info.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()

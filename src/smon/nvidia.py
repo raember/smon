@@ -135,7 +135,8 @@ NVIDIA_CLOCK_SPEED_THROTTLE_REASONS = [
     "clocks_throttle_reasons.sync_boost",
 ]
 NVIDIA_GPU_QUERIES = [
-    'name', 'uuid', 'index', *NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, 'memory.total', 'memory.used', 'memory.free',
+    'name', 'uuid', 'pci.bus_id', 'index', *NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, 'memory.total', 'memory.used',
+    'memory.free',
     'utilization.gpu', 'utilization.memory', 'temperature.gpu', 'temperature.memory', 'power.draw',
 ]
 
