@@ -1,3 +1,6 @@
+# smon - slurm info script for GPU-HPC users
+# Copyright © 2023  Raphael Emberger
+
 from datetime import datetime, timedelta
 from typing import List, Callable, Dict
 

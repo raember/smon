@@ -1,3 +1,5 @@
 #!/bin/bash
+# smon - slurm info script for GPU-HPC users
+# Copyright © 2023  Raphael Emberger
 
 /usr/bin/python3 -m smon.main "$@"

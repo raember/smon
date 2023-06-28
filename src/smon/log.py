@@ -1,3 +1,6 @@
+# smon - slurm info script for GPU-HPC users
+# Copyright © 2023  Raphael Emberger
+
 RED = 31
 GREEN = 32
 YELLOW = 33

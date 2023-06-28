@@ -1,3 +1,6 @@
+# smon - slurm info script for GPU-HPC users
+# Copyright © 2023  Raphael Emberger, Pascal Sager
+
 from datetime import datetime
 
 import yaml

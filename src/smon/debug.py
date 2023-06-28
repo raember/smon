@@ -1,3 +1,6 @@
+# smon - slurm info script for GPU-HPC users
+# Copyright © 2023  Raphael Emberger
+
 from pathlib import Path
 
 from smon.main import get_args, main
