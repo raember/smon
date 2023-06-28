@@ -3,6 +3,7 @@
 import argparse
 import os
 import pickle
+import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -181,6 +182,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         gpu_info['in_use'] = None
         gpu_info['pids'] = None
         gpu_processes['container'] = None
+        gpu_processes['conda'] = None
         gpu_processes['cpu_util'] = None
         gpu_processes['create_time'] = None
         gpu_processes['cpu_cnt'] = None
@@ -366,13 +368,24 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 blue_bar(proc_details, 4)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
-                        blue_bar('Running inside SLURM job', 4)
+                        if gpu_processes.loc[gpu_proc_pid, 'conda']:
+                            blue_bar(f'Running in a baremetal {gpu_processes.loc[gpu_proc_pid, "conda"]} environment',
+                                     4)
+                        else:
+                            blue_bar('Running in baremetal environment', 4)  # This shouldn't really ever happen
                         break
-                    elif gpu_processes.loc[gpu_proc_pid, 'container'] is not None or is_docker_container(sjob_proc):
+                    elif 'conda' in sjob_proc.cmdline()[0]:
+                        # Possibly inside conda baremetal.
+                        cmd = sjob_proc.cmdline()[0]
+                        conda_cmd = re.search(r'/([^/]*conda[^/]*)/', cmd).group(1)
+                        gpu_processes.loc[gpu_proc_pid, 'conda'] = conda_cmd
+                    elif is_docker_container(sjob_proc):
                         # Running inside docker
                         if not is_dump:
                             container_id = get_container_id_from(sjob_proc)
                             gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
+                            # We don't want conda inside docker getting flagged as baremetal-conda
+                            gpu_processes.loc[gpu_proc_pid, 'conda'] = None
                         else:
                             container_id = gpu_processes.loc[gpu_proc_pid, 'container']
                         container_info = containers.loc[container_id]
