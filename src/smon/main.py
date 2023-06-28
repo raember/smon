@@ -352,23 +352,23 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 if start_time is not None:
                     proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
 
-                msg4(f'[{fmt_info}{gpu_proc["pid"]}{FMT_RST}] {proc_name}{FMT_RST}')
+                pid_str = str(gpu_proc["pid"])
+                msg4(f'[{fmt_info}{pid_str}{FMT_RST}] {proc_name}{FMT_RST}')
                 if print_prog_args and proc is not None:
                     # Print out all args of the running job
                     proc_args = proc.cmdline()[1:]
-                    has_one_arg = True
+                    is_first_arg = True
                     arg = ''
                     for proc_arg in proc_args:
                         arg_line = (arg + ' ' + proc_arg).strip()
-                        if (len(arg) <= STR_LEN_MAX or has_one_arg) and STR_LEN_MAX < len(arg_line):
-                            blue_bar(f'            \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
+                        if len(arg_line) > STR_LEN_MAX and not is_first_arg:
+                            blue_bar(f'  {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
                             arg = proc_arg
-                            has_one_arg = True
                         else:
-                            arg = arg_line
-                            has_one_arg = False
+                            arg = arg_line.strip()
+                        is_first_arg = False
                     if arg != '':
-                        blue_bar(f'            \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
+                        blue_bar(f'  {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
                 blue_bar(proc_details, 4)
                 while sjob_proc is not None:  # Check up the process tree
                     if is_slurm_session(sjob_proc, sjob_pids_list):
