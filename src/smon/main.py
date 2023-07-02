@@ -270,7 +270,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                             reason = throttling_reason.split('.')[-1].replace('_', ' ').title()
                             reason = reason.replace('Sw', 'SW').replace('Hw', 'HW').replace('Gpu', 'GPU')
                             if throttling_reason != 'clocks_throttle_reasons.gpu_idle':
-                                gpu_node.log(f'{fmt_warn}Throttling: {reason}')
+                                gpu_node.log_leaf(f'{fmt_warn}Throttling: {reason}')
 
                     # Check GPU usage and setup (i.e. container or venv/conda)
                     gpu_uuid = gpu_info_['uuid']
