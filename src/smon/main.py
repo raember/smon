@@ -16,9 +16,9 @@ from typing import Tuple
 from pandas import DataFrame, Series
 from psutil import Process, NoSuchProcess
 from smon.docker_info import get_running_containers, container_to_string
-from smon.log import msg2, msg1, err2, warn3, msg3, msg4, msg5, warn4, err5, err3, \
+from smon.log import msg2, msg1, warn3, msg3, msg4, msg5, err5, err3, \
     FMT_INFO1, FMT_INFO2, FMT_GOOD1, FMT_GOOD2, FMT_WARN1, FMT_WARN2, FMT_BAD1, FMT_BAD2, FMT_RST, err1, warn1, warn2, \
-    blue_bar, MAGENTA, LIGHT_GRAY
+    MAGENTA, LIGHT_GRAY, log_tree
 from smon.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
 from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_node, \
     get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd
@@ -209,208 +209,215 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         # Display basic information about SLURM job
         msg1(slurm_job_to_string(sjob, job_id, fmt_info))
 
-        # Check if SLURM job has been set up correctly
-        is_interactive_bash_session = True
-        if not is_dump:
-            try:
-                sjob_main_pid = Process(sjob['alloc_sid'])
-                is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
-                if not is_interactive_bash_session:
-                    warn2('Is an interactive bash session')
-                is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
-            except NoSuchProcess as ex_nsp:
-                warn2(f"SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
-                is_sane = False
-                slurm_ppid = None
-        else:
-            is_sane = sjobs.loc[job_id, 'is_sane']
-            slurm_ppid = sjobs.loc[job_id, 'ppid']
-            is_interactive_bash_session = sjobs.loc[job_id, 'is_interactive_bash_session']
-        if not is_sane:
-            if slurm_ppid is not None:
-                err2(
-                    f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
+        with log_tree(3, include_root_hook=False) as tree:
+            # Check if SLURM job has been set up correctly
+            is_interactive_bash_session = True
+            if not is_dump:
+                try:
+                    sjob_main_pid = Process(sjob['alloc_sid'])
+                    is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
+                    if not is_interactive_bash_session:
+                        tree.log_leaf(f'{fmt_warn}Is an interactive bash session')
+                    is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
+                except NoSuchProcess as ex_nsp:
+                    tree.log_leaf(f"{fmt_warn}SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
+                    is_sane = False
+                    slurm_ppid = None
             else:
-                warn2(f'{fmt_warn}SLURM session cannot be determined!')
-        sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
-        sjobs2.loc[job_id, 'is_sane'] = is_sane
-        sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
-        sjobs.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
-        sjobs.loc[job_id, 'is_sane'] = is_sane
-        sjobs.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
-
-        # Show resources allocated
-        sjob_gres = sjob['GRES']
-        res = sjob['tres_req']
-        res_cpu = int(res.get("cpu", len(sjob["CPU_IDs"])))
-        res_mem = float(res.get("mem", sjob["pn_min_memory"]).rstrip('G'))
-        res_gpu = len(sjob_gres)
-        msg2(
-            f'Reserved {res_to_str(fmt_info, res_cpu, fmt_info, res_mem, fmt_info, res_gpu, node)}' +
-            (f' (GPU: {", ".join(map(str, sjob_gres))})' if len(sjob_gres) != 0 else ''))
-
-        # Show GPU allocations
-        # if len(sjob_gres) == 0 and not is_queueing:
-        #     warn3(f'{fmt_warn}No GPUs were allocated. Was this intended?')
-
-        # The GPU IDs/indices are shifted because of limited visibility
-        for gpu_id, gpu_id_i in zip(sjob_gres, range(len(sjob_gres))):
-            gpu_id_internal = gpu_id
-            if we_are_inside_slurm:
-                gpu_id_internal = gpu_id_i
-            gpu_info_ = gpu_info2.loc[gpu_id_internal]
-            # Print stats
-            msg3(gpu_to_string(gpu_info_, gpu_id, fmt_info))
-
-            # Determine throttling
-            throttling_reasons = gpu_info_[NVIDIA_CLOCK_SPEED_THROTTLE_REASONS]
-            for throttling_reason in throttling_reasons.index:
-                if throttling_reasons[throttling_reason] == 'Active':
-                    reason = throttling_reason.split('.')[-1].replace('_', ' ').title()
-                    reason = reason.replace('Sw', 'SW').replace('Hw', 'HW').replace('Gpu', 'GPU')
-                    if throttling_reason != 'clocks_throttle_reasons.gpu_idle':
-                        warn3(f'{fmt_warn}Throttling: {reason}')
-
-            # Check GPU usage and setup (i.e. container or venv/conda)
-            gpu_uuid = gpu_info_['uuid']
-            gpu_procs_actual = gpu_processes[gpu_processes['gpu_uuid'] == gpu_uuid]
-            if len(gpu_procs_actual) == 0:
-                warn4(f'GPU not in use')
-                gpu_info.loc[gpu_id_internal, 'in_use'] = False
-                gpu_info2.loc[gpu_id_internal, 'in_use'] = False
-                # Find containers that see the exact list of this slurm job's resources
-                for cont_id, cont in containers.iterrows():
-                    if cont['GPUs'] == sjob_gres:
-                        msg5(f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
-            else:
-                sjobs.loc[job_id, 'is_using_gpu'] = True
-                gpu_info.loc[gpu_id_internal, 'in_use'] = True
-                gpu_info2.loc[gpu_id_internal, 'in_use'] = True
-            gpu_info.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
-            gpu_info2.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
-            # Check all associated GPU processes
-            for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
-                gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
-                proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{gpu_proc["process_name"]}{FMT_RST}'
-                start_time, cpu_cnt, proc_cpu_util, proc_ram, proc_ram_perc = None, None, None, None, None
-                does_pid_exist = True
-                vram = gpu_proc["used_gpu_memory [MiB]"]
-                vram_perc = vram / gpu_info_["memory.total [MiB]"]
-                fmt_vram = fmt_good
-                if vram_perc > PERCENTAGE_WARN2:
-                    fmt_vram = fmt_bad
-                elif vram_perc > PERCENTAGE_WARN1:
-                    fmt_vram = fmt_warn
-                proc_details = f'{fmt_vram}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST} VRAM'
-                proc = None
-                if not is_dump:
-                    try:
-                        proc = Process(gpu_proc['pid'])
-                        if not print_prog_args:
-                            proc_name = ' '.join(proc.cmdline())
-                            if len(proc_name) > STR_LEN_MAX:
-                                proc_name = proc_name[:STR_LEN_MAX - 3] + '...'
-                        else:
-                            proc_name = proc.name()
-                        proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{proc_name}{FMT_RST}'
-                        start_time = datetime.fromtimestamp(proc.create_time())
-                        gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
-                        proc_mem = proc.memory_info()
-                        proc_ram = float(proc_mem.rss) / 1000 ** 3
-                        # proc_ram_virt = float(proc_mem.vms) / 1000 ** 3
-                        gpu_processes.loc[gpu_proc_pid, 'ram'] = proc_ram
-                        proc_ram_perc = proc_ram / res_mem * 100
-                        cpu_cnt = proc.cpu_num()
-                        gpu_processes.loc[gpu_proc_pid, 'cpu_cnt'] = cpu_cnt
-                        proc_cpu_util = proc.cpu_percent(0.2)
-                        gpu_processes.loc[gpu_proc_pid, 'cpu_util'] = proc_cpu_util
-                        sjob_proc = proc.parent()
-                    except NoSuchProcess:
-                        # warn4(f"GPU process {gpu_proc['pid']} could not be found!")
-                        proc_name = f'{fmt_bad}{gpu_proc["process_name"]}{FMT_RST}'
-                        sjob_proc = None
-                        does_pid_exist = False
+                is_sane = sjobs.loc[job_id, 'is_sane']
+                slurm_ppid = sjobs.loc[job_id, 'ppid']
+                is_interactive_bash_session = sjobs.loc[job_id, 'is_interactive_bash_session']
+            if not is_sane:
+                if slurm_ppid is not None:
+                    tree.log_leaf(
+                        f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
                 else:
-                    start_time = gpu_processes.loc[gpu_proc_pid, 'create_time']
-                    proc_ram = gpu_processes.loc[gpu_proc_pid, 'ram']
-                    proc_ram_perc = proc_ram / res_mem * 100
-                    cpu_cnt = gpu_processes.loc[gpu_proc_pid, 'cpu_cnt']
-                    proc_cpu_util = gpu_processes.loc[gpu_proc_pid, 'cpu_util']
-                    sjob_proc = Process(1)
-                if proc_ram is not None:
-                    ram_s = f'{proc_ram:.1f}' if int(proc_ram) != proc_ram else int(proc_ram)
-                    fmt_ram = fmt_good
-                    if proc_ram_perc > PERCENTAGE_WARN2:
-                        fmt_ram = fmt_bad
-                    elif proc_ram_perc > PERCENTAGE_WARN1:
-                        fmt_ram = fmt_warn
-                    proc_details += f', {fmt_ram}{ram_s}{FMT_RST}/{strgbytes(res_mem, False)} RAM'
-                    # ({proc_ram_perc:.1f}%)'
-                if cpu_cnt is not None:
-                    proc_details += f', {fmt_info}{proc_cpu_util:.1f}%{FMT_RST}, {fmt_info}{cpu_cnt}{FMT_RST} CPUs'
-                proc_details += ''
-                if start_time is not None:
-                    proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
+                    tree.log_leaf(f'{fmt_warn}SLURM session cannot be determined!')
+            sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
+            sjobs2.loc[job_id, 'is_sane'] = is_sane
+            sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
+            sjobs.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
+            sjobs.loc[job_id, 'is_sane'] = is_sane
+            sjobs.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
 
-                pid_str = str(gpu_proc["pid"])
-                msg4(f'[{fmt_info}{pid_str}{FMT_RST}] {proc_name}{FMT_RST}')
-                if print_prog_args and proc is not None:
-                    # Print out all args of the running job
-                    proc_args = proc.cmdline()[1:]
-                    is_first_arg = True
-                    arg = ''
-                    for proc_arg in proc_args:
-                        arg_line = (arg + ' ' + proc_arg).strip()
-                        if len(arg_line) > STR_LEN_MAX and not is_first_arg:
-                            blue_bar(f'  {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
-                            arg = proc_arg
-                        else:
-                            arg = arg_line.strip()
-                        is_first_arg = False
-                    if arg != '':
-                        blue_bar(f'  {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST, 4)
-                blue_bar(proc_details, 4)
-                while sjob_proc is not None:  # Check up the process tree
-                    if is_slurm_session(sjob_proc, sjob_pids_list):
-                        if gpu_processes.loc[gpu_proc_pid, 'conda']:
-                            blue_bar(f'Running in a baremetal {gpu_processes.loc[gpu_proc_pid, "conda"]} environment',
-                                     4)
-                        else:
-                            blue_bar('Running in baremetal environment', 4)  # This shouldn't really ever happen
-                        break
-                    elif 'conda' in sjob_proc.cmdline()[0]:
-                        # Possibly inside conda baremetal.
-                        cmd = sjob_proc.cmdline()[0]
-                        conda_cmd = re.search(r'/([^/]*conda[^/]*)/', cmd).group(1)
-                        gpu_processes.loc[gpu_proc_pid, 'conda'] = conda_cmd
-                    elif is_docker_container(sjob_proc):
-                        # Running inside docker
+            # Show resources allocated
+            sjob_gres = sjob['GRES']
+            res = sjob['tres_req']
+            res_cpu = int(res.get("cpu", len(sjob["CPU_IDs"])))
+            res_mem = float(res.get("mem", sjob["pn_min_memory"]).rstrip('G'))
+            res_gpu = len(sjob_gres)
+            tree.log_leaf(f'Reserved {res_to_str(fmt_info, res_cpu, fmt_info, res_mem, fmt_info, res_gpu, node)}' +
+                          (f' (GPU: {", ".join(map(str, sjob_gres))})' if len(sjob_gres) != 0 else ''))
+
+            # Show GPU allocations
+            # if len(sjob_gres) == 0 and not is_queueing:
+            #     warn3(f'{fmt_warn}No GPUs were allocated. Was this intended?')
+
+            # The GPU IDs/indices are shifted because of limited visibility
+            for gpu_id, gpu_id_i in zip(sjob_gres, range(len(sjob_gres))):
+                gpu_id_internal = gpu_id
+                if we_are_inside_slurm:
+                    gpu_id_internal = gpu_id_i
+                gpu_info_ = gpu_info2.loc[gpu_id_internal]
+                # Print stats
+                with tree.add_node() as gpu_node:
+                    gpu_node.log(gpu_to_string(gpu_info_, gpu_id, fmt_info))
+
+                    # Determine throttling
+                    throttling_reasons = gpu_info_[NVIDIA_CLOCK_SPEED_THROTTLE_REASONS]
+                    for throttling_reason in throttling_reasons.index:
+                        if throttling_reasons[throttling_reason] == 'Active':
+                            reason = throttling_reason.split('.')[-1].replace('_', ' ').title()
+                            reason = reason.replace('Sw', 'SW').replace('Hw', 'HW').replace('Gpu', 'GPU')
+                            if throttling_reason != 'clocks_throttle_reasons.gpu_idle':
+                                gpu_node.log(f'{fmt_warn}Throttling: {reason}')
+
+                    # Check GPU usage and setup (i.e. container or venv/conda)
+                    gpu_uuid = gpu_info_['uuid']
+                    gpu_procs_actual = gpu_processes[gpu_processes['gpu_uuid'] == gpu_uuid]
+                    if len(gpu_procs_actual) == 0:
+                        gpu_node.log_leaf(f'{fmt_bad}GPU not in use')
+                        gpu_info.loc[gpu_id_internal, 'in_use'] = False
+                        gpu_info2.loc[gpu_id_internal, 'in_use'] = False
+                        # Find containers that see the exact list of this slurm job's resources
+                        with gpu_node.add_node() as container_node:
+                            for cont_id, cont in containers.iterrows():
+                                if cont['GPUs'] == sjob_gres:
+                                    container_node.log(
+                                        f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
+                    else:
+                        sjobs.loc[job_id, 'is_using_gpu'] = True
+                        gpu_info.loc[gpu_id_internal, 'in_use'] = True
+                        gpu_info2.loc[gpu_id_internal, 'in_use'] = True
+                    gpu_info.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
+                    gpu_info2.at[gpu_id_internal, 'pids'] = gpu_procs_actual['pid'].to_list()
+                    # Check all associated GPU processes
+                    for gpu_proc_pid, gpu_proc in gpu_procs_actual.iterrows():
+                        gpu_processes2 = gpu_processes2.drop(gpu_proc_pid)
+                        proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{gpu_proc["process_name"]}{FMT_RST}'
+                        start_time, cpu_cnt, proc_cpu_util, proc_ram, proc_ram_perc = None, None, None, None, None
+                        does_pid_exist = True
+                        vram = gpu_proc["used_gpu_memory [MiB]"]
+                        vram_perc = vram / gpu_info_["memory.total [MiB]"]
+                        fmt_vram = fmt_good
+                        if vram_perc > PERCENTAGE_WARN2:
+                            fmt_vram = fmt_bad
+                        elif vram_perc > PERCENTAGE_WARN1:
+                            fmt_vram = fmt_warn
+                        proc_details = f'{fmt_vram}{strmbytes(gpu_proc["used_gpu_memory [MiB]"])}{FMT_RST} VRAM'
+                        proc = None
                         if not is_dump:
-                            container_id = get_container_id_from(sjob_proc)
-                            gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
-                            # We don't want conda inside docker getting flagged as baremetal-conda
-                            gpu_processes.loc[gpu_proc_pid, 'conda'] = None
+                            try:
+                                proc = Process(gpu_proc['pid'])
+                                if not print_prog_args:
+                                    proc_name = ' '.join(proc.cmdline())
+                                    if len(proc_name) > STR_LEN_MAX:
+                                        proc_name = proc_name[:STR_LEN_MAX - 3] + '...'
+                                else:
+                                    proc_name = proc.name()
+                                proc_name = f'{CMD_PREFIX} \033[{LIGHT_GRAY}m{proc_name}{FMT_RST}'
+                                start_time = datetime.fromtimestamp(proc.create_time())
+                                gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
+                                proc_mem = proc.memory_info()
+                                proc_ram = float(proc_mem.rss) / 1000 ** 3
+                                # proc_ram_virt = float(proc_mem.vms) / 1000 ** 3
+                                gpu_processes.loc[gpu_proc_pid, 'ram'] = proc_ram
+                                proc_ram_perc = proc_ram / res_mem * 100
+                                cpu_cnt = proc.cpu_num()
+                                gpu_processes.loc[gpu_proc_pid, 'cpu_cnt'] = cpu_cnt
+                                proc_cpu_util = proc.cpu_percent(0.2)
+                                gpu_processes.loc[gpu_proc_pid, 'cpu_util'] = proc_cpu_util
+                                sjob_proc = proc.parent()
+                            except NoSuchProcess:
+                                # warn4(f"GPU process {gpu_proc['pid']} could not be found!")
+                                proc_name = f'{fmt_bad}{gpu_proc["process_name"]}{FMT_RST}'
+                                sjob_proc = None
+                                does_pid_exist = False
                         else:
-                            container_id = gpu_processes.loc[gpu_proc_pid, 'container']
-                        container_info = containers.loc[container_id]
-                        blue_bar(
-                            f'Running inside docker: {container_to_string(container_info, container_id, fmt_info)}', 4)
-                        # Check sanity
-                        gpu_excess = [gpuid for gpuid in container_info['GPUs'] if gpuid not in sjob_gres]
-                        if len(gpu_excess) > 0:
-                            blue_bar(
-                                f'{fmt_bad}Container sees more GPUs ({gpu_excess}) than allowed by SLURM job!{FMT_RST}',
-                                4)
-                        # TODO: Add more sanity checks for containers
-                        containers2 = containers2.drop(container_id, errors='ignore')
-                        gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
-                        break
-                    sjob_proc = sjob_proc.parent()
-                if does_pid_exist and sjob_proc is None:
-                    blue_bar(f'{fmt_bad}Process is neither within a docker nor inside a SLURM job!{FMT_RST}', 4)
+                            start_time = gpu_processes.loc[gpu_proc_pid, 'create_time']
+                            proc_ram = gpu_processes.loc[gpu_proc_pid, 'ram']
+                            proc_ram_perc = proc_ram / res_mem * 100
+                            cpu_cnt = gpu_processes.loc[gpu_proc_pid, 'cpu_cnt']
+                            proc_cpu_util = gpu_processes.loc[gpu_proc_pid, 'cpu_util']
+                            sjob_proc = Process(1)
+                        if proc_ram is not None:
+                            ram_s = f'{proc_ram:.1f}' if int(proc_ram) != proc_ram else int(proc_ram)
+                            fmt_ram = fmt_good
+                            if proc_ram_perc > PERCENTAGE_WARN2:
+                                fmt_ram = fmt_bad
+                            elif proc_ram_perc > PERCENTAGE_WARN1:
+                                fmt_ram = fmt_warn
+                            proc_details += f', {fmt_ram}{ram_s}{FMT_RST}/{strgbytes(res_mem, False)} RAM'
+                            # ({proc_ram_perc:.1f}%)'
+                        if cpu_cnt is not None:
+                            proc_details += f', {fmt_info}{proc_cpu_util:.1f}%{FMT_RST}, {fmt_info}{cpu_cnt}{FMT_RST} CPUs'
+                        proc_details += ''
+                        if start_time is not None:
+                            proc_details += f', started {strtdelta(datetime.now() - start_time)} ago'
 
-            # Remove from the list of GPUs
-            gpu_info2 = gpu_info2.drop(gpu_id_internal)
+                        pid_str = str(gpu_proc["pid"])
+                        with gpu_node.add_node([MAGENTA]) as proc_node:
+                            proc_node.log(f'[{fmt_info}{pid_str}{FMT_RST}] {proc_name}{FMT_RST}')
+                            if print_prog_args and proc is not None:
+                                # Print out all args of the running job
+                                proc_args = proc.cmdline()[1:]
+                                is_first_arg = True
+                                arg = ''
+                                for proc_arg in proc_args:
+                                    arg_line = (arg + ' ' + proc_arg).strip()
+                                    if len(arg_line) > STR_LEN_MAX and not is_first_arg:
+                                        proc_node.log(
+                                            f'\033[{";".join(map(str, proc_node.fmt))}m│{FMT_RST} {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST)
+                                        arg = proc_arg
+                                    else:
+                                        arg = arg_line.strip()
+                                    is_first_arg = False
+                                if arg != '':
+                                    proc_node.log(
+                                        f'\033[{";".join(map(str, proc_node.fmt))}m│{FMT_RST} {" " * len(pid_str)}   \033[{LIGHT_GRAY}m' + arg + FMT_RST)
+                            proc_node.log_leaf(proc_details)
+                        while sjob_proc is not None:  # Check up the process tree
+                            if is_slurm_session(sjob_proc, sjob_pids_list):
+                                if gpu_processes.loc[gpu_proc_pid, 'conda']:
+                                    gpu_node.log_leaf(
+                                        f'Running in a baremetal {gpu_processes.loc[gpu_proc_pid, "conda"]} environment')
+                                else:
+                                    gpu_node.log_leaf('Running in baremetal environment',
+                                                      4)  # This shouldn't really ever happen
+                                break
+                            elif 'conda' in sjob_proc.cmdline()[0]:
+                                # Possibly inside conda baremetal.
+                                cmd = sjob_proc.cmdline()[0]
+                                conda_cmd = re.search(r'/([^/]*conda[^/]*)/', cmd).group(1)
+                                gpu_processes.loc[gpu_proc_pid, 'conda'] = conda_cmd
+                            elif is_docker_container(sjob_proc):
+                                # Running inside docker
+                                if not is_dump:
+                                    container_id = get_container_id_from(sjob_proc)
+                                    gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
+                                    # We don't want conda inside docker getting flagged as baremetal-conda
+                                    gpu_processes.loc[gpu_proc_pid, 'conda'] = None
+                                else:
+                                    container_id = gpu_processes.loc[gpu_proc_pid, 'container']
+                                container_info = containers.loc[container_id]
+                                proc_node.log_leaf(
+                                    f'Running inside docker: {container_to_string(container_info, container_id, fmt_info)}')
+                                # Check sanity
+                                gpu_excess = [gpuid for gpuid in container_info['GPUs'] if gpuid not in sjob_gres]
+                                if len(gpu_excess) > 0:
+                                    proc_node.log_leaf(
+                                        f'{fmt_bad}Container sees more GPUs ({gpu_excess}) than allowed by SLURM job!{FMT_RST}')
+                                # TODO: Add more sanity checks for containers
+                                containers2 = containers2.drop(container_id, errors='ignore')
+                                gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
+                                break
+                            sjob_proc = sjob_proc.parent()
+                        if does_pid_exist and sjob_proc is None:
+                            proc_node.log_leaf(
+                                f'{fmt_bad}Process is neither within a docker nor inside a SLURM job!{FMT_RST}')
+
+                    # Remove from the list of GPUs
+                    gpu_info2 = gpu_info2.drop(gpu_id_internal)
 
     if len(pending_sjobs) > 0:
         msg1(f"{'=' * 10}  SJOBS IN QUEUE  {'=' * 10}")

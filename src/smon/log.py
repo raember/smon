@@ -1,5 +1,7 @@
 # smon - slurm info script for GPU-HPC users
 # Copyright © 2023  Raphael Emberger
+from contextlib import contextmanager
+from typing import List, ContextManager
 
 RED = 31
 GREEN = 32
@@ -127,3 +129,89 @@ def bar(s: str, level: int, color: int):
 
 def blue_bar(s: str, level: int):
     bar(s, level, BLUE)
+
+
+# ├─
+# │
+# └─
+#   ├─
+
+class TreeLogger:
+    def __init__(self, indent: int = 0, parent: 'TreeLogger' = None, fmt: List[int] = None,
+                 include_root_hook: bool = True):
+        self.indent = indent
+        self.parent = parent
+        if fmt is None:
+            fmt = [BLUE]
+        self.fmt = fmt
+        self.nodes = []
+        self.strings = []
+        self.is_last = True
+        self.include_root_hook = include_root_hook
+
+    @contextmanager
+    def add_node(self, fmt: List[int] = None) -> ContextManager['TreeLogger']:
+        node = TreeLogger(parent=self, fmt=self.fmt if fmt is None else fmt)
+        try:
+            yield node
+        finally:
+            if len(self.nodes) > 0:
+                self.nodes[-1].is_last = False
+            self.nodes.append(node)
+
+    def log(self, s: str = None):
+        self.strings.append(s)
+
+    def log_leaf(self, s: str):
+        with self.add_node() as node:
+            node.log(s)
+
+    @property
+    def path(self) -> List['TreeLogger']:
+        tree = self
+        path = []
+        while tree is not None:
+            path.append(tree)
+            tree = tree.parent
+        return path[::-1]
+
+    def print_head(self, is_visible: bool, is_leaf: bool):
+        if self.include_root_hook:
+            if is_leaf:
+                head = '└─ ' if self.is_last else '├─ '
+            else:
+                head = '   ' if self.is_last and not is_visible else '│  '
+        else:
+            head = ''
+        fmt = self.fmt if self.parent is None else self.parent.fmt
+        print(f"{' ' * self.indent}\033[{';'.join(map(str, fmt))}m{head}{FMT_RST}", end='')
+
+    def print(self):
+        paths = self.path
+        # Print all lines of node
+        is_first = True
+        for s_line in self.strings:
+            for parent in paths[:-1]:
+                parent.print_head(is_visible=not parent.is_last, is_leaf=False)
+            self.print_head(is_visible=not self.is_last, is_leaf=is_first)
+            if s_line is not None:
+                print(s_line)
+            else:
+                print()
+            is_first = False
+
+        # Print children
+        for child in self.nodes:
+            child.print()
+
+    def __repr__(self):
+        return '\n'.join(self.strings)
+
+
+@contextmanager
+def log_tree(indent: int, include_root_hook: bool = True) -> ContextManager[TreeLogger]:
+    tree_log = TreeLogger(indent, include_root_hook=include_root_hook)
+    try:
+        yield tree_log
+    finally:
+        tree_log.print()
