@@ -2,6 +2,7 @@
 # Copyright © 2023  Raphael Emberger, Pascal Sager
 
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, and_, Interval
@@ -11,7 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-credentials = yaml.load(open("../../credentials.yaml"), Loader=yaml.FullLoader)
+credentials = yaml.load(open((Path(__file__) / "../../../credentials.yaml").resolve()), Loader=yaml.FullLoader)
 
 engine = create_engine(
     f'postgresql://{credentials["username"]}:{credentials["password"]}@{credentials["url"]}:{credentials["port"]}/slurm-info',
