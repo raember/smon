@@ -273,3 +273,13 @@ def res_to_srun_cmd(n_cpu: int, mem: int, n_gpu: int, job_name: str = None, comm
     if job_name is None:
         job_name = f'{FMT_INFO1}<jobname>{FMT_RST}'
     return f'srun --pty --ntasks=1 --cpus-per-task={n_cpu} --mem={s_mem}G --gres=gpu:{n_gpu} --job-name={job_name} {command}'
+
+
+def is_interactive_bash_session(proc: Process) -> bool:
+    if proc.name() == 'srun':
+        return proc.cmdline()[-1] == 'bash'
+    else:
+        for child in proc.children():
+            if is_interactive_bash_session(child):
+                return True
+        return False

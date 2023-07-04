@@ -21,7 +21,8 @@ from smon.log import msg2, msg1, warn3, msg3, msg4, msg5, err5, err3, \
     MAGENTA, LIGHT_GRAY, log_tree
 from smon.nvidia import nvidia_smi_gpu, nvidia_smi_compute, NVIDIA_CLOCK_SPEED_THROTTLE_REASONS, gpu_to_string
 from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, get_node, \
-    get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd
+    get_partition, suggest_n_gpu_srun_cmd, res_to_str, get_jobs_pretty, get_statistics, res_to_srun_cmd, \
+    is_interactive_bash_session
 from smon.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
     strtdelta, strmbytes, strgbytes
 
@@ -211,12 +212,12 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
 
         with log_tree(3, include_root_hook=False) as tree:
             # Check if SLURM job has been set up correctly
-            is_interactive_bash_session = True
+            is_interactive_bash = True
             if not is_dump:
                 try:
                     sjob_main_pid = Process(sjob['alloc_sid'])
-                    is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
-                    if not is_interactive_bash_session:
+                    is_interactive_bash = is_interactive_bash_session(sjob_main_pid)
+                    if is_interactive_bash:
                         tree.log_leaf(f'{fmt_warn}Is an interactive bash session')
                     is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
                 except NoSuchProcess as ex_nsp:
@@ -226,17 +227,17 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
             else:
                 is_sane = sjobs.loc[job_id, 'is_sane']
                 slurm_ppid = sjobs.loc[job_id, 'ppid']
-                is_interactive_bash_session = sjobs.loc[job_id, 'is_interactive_bash_session']
+                is_interactive_bash = sjobs.loc[job_id, 'is_interactive_bash_session']
             if not is_sane:
                 if slurm_ppid is not None:
                     tree.log_leaf(
                         f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
                 else:
                     tree.log_leaf(f'{fmt_warn}SLURM session cannot be determined!')
-            sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
+            sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash
             sjobs2.loc[job_id, 'is_sane'] = is_sane
             sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
-            sjobs.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash_session
+            sjobs.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash
             sjobs.loc[job_id, 'is_sane'] = is_sane
             sjobs.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
 
@@ -431,8 +432,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
             # Display basic information about SLURM job
             msg1(slurm_job_to_string(sjob, job_id, fmt_info))
             sjob_main_pid = Process(sjob['alloc_sid'])
-            is_interactive_bash_session = sjob_main_pid.children()[0].cmdline()[-1] != 'bash'
-            if not is_interactive_bash_session:
+            if is_interactive_bash_session(sjob_main_pid):
                 warn2('Is an interactive bash session')
 
             sjob_gres = list(range(int(sjob.get('tres_per_node', 'gpu:0').split(':')[-1])))
