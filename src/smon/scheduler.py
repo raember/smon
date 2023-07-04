@@ -177,7 +177,7 @@ def query_server():
         nvidia_infos.gpus.append(g)
     nvidia_infos.total_memory_gpus = round(sum(gpu_info['memory.total [MiB]']) / 1024)
     nvidia_infos.total_memory_used_gpus = round(sum(gpu_info['memory.used [MiB]']) / 1024)
-    nvidia_infos.n_unused_gpus = len(gpu_processes['gpu_uuid'].unique())
+    nvidia_infos.n_unused_gpus = len(gpu_info) - len(gpu_processes['gpu_uuid'].unique())
 
     ### DOCKER INFOS
 

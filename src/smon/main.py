@@ -517,7 +517,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
     #   SLURM
     free_gpu_str_slurm = f'{FMT_INFO1}{gpu_free}{FMT_RST}'
     #   NVIDIA
-    reserved_nvidia_gpu_n = len(gpu_processes['gpu_uuid'].unique())
+    busy_gpu_n = len(gpu_processes['gpu_uuid'].unique())
     # free_gpu_str_nvidia = f'{FMT_INFO1}{len(all_gpu_ids) - reserved_nvidia_gpu_n}{FMT_RST}'
     # #   Docker containers
     # reserved_docker_gpu_ids = []
@@ -535,7 +535,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
     free_ram_str = f"{FMT_INFO1}{strgbytes(available_ram, False)}{FMT_RST}"
 
     msg2(f"Free resources: {free_gpu_str_slurm}/{gpu_total} GPUs"
-         f" ({FMT_INFO1}{reserved_nvidia_gpu_n}{FMT_RST}/{gpu_used} using the GPU)"
+         f" ({FMT_INFO1}{busy_gpu_n}{FMT_RST}/{gpu_used} using the GPU)"
          # f" (nvidia: {free_gpu_str_nvidia}/{n_gpus}, docker: {free_gpu_str_docker}/{n_gpus})"
          f", {free_cpu_str}/{n_cpus} CPUs"
          f", {free_ram_str}/{strmbytes(node['real_memory'], False)} RAM")
