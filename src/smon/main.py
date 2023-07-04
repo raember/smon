@@ -383,14 +383,15 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                                     gpu_node.log_leaf(
                                         f'Running in a baremetal {gpu_processes.loc[gpu_proc_pid, "conda"]} environment')
                                 else:
-                                    gpu_node.log_leaf('Running in baremetal environment',
-                                                      4)  # This shouldn't really ever happen
+                                    gpu_node.log_leaf(
+                                        'Running in baremetal environment')  # This shouldn't really ever happen
                                 break
                             elif 'conda' in sjob_proc.cmdline()[0]:
                                 # Possibly inside conda baremetal.
                                 cmd = sjob_proc.cmdline()[0]
                                 conda_cmd = re.search(r'/([^/]*conda[^/]*)/', cmd).group(1)
                                 gpu_processes.loc[gpu_proc_pid, 'conda'] = conda_cmd
+                                # Is there anything else we'd want to know? Maybe log the conda env?
                             elif is_docker_container(sjob_proc):
                                 # Running inside docker
                                 if not is_dump:
@@ -413,9 +414,11 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                                 gpu_processes.loc[gpu_proc_pid, 'container'] = container_id
                                 break
                             sjob_proc = sjob_proc.parent()
-                        if does_pid_exist and sjob_proc is None:
+                        if gpu_processes.loc[gpu_proc_pid, 'conda'] is not None:
+                            proc_node.log_leaf(f'Running inside {gpu_processes.loc[gpu_proc_pid, "conda"]} environment')
+                        elif does_pid_exist and sjob_proc is None:
                             proc_node.log_leaf(
-                                f'{fmt_bad}Process is neither within a docker nor inside a SLURM job!{FMT_RST}')
+                                f'{fmt_bad}Process is neither within a docker nor inside a SLURM job{FMT_RST}')
 
                     # Remove from the list of GPUs
                     gpu_info2 = gpu_info2.drop(gpu_id_internal)
