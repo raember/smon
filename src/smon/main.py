@@ -281,9 +281,9 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         gpu_info.loc[gpu_id_internal, 'in_use'] = False
                         gpu_info2.loc[gpu_id_internal, 'in_use'] = False
                         # Find containers that see the exact list of this slurm job's resources
-                        with gpu_node.add_node() as container_node:
-                            for cont_id, cont in containers.iterrows():
-                                if cont['GPUs'] == sjob_gres:
+                        for cont_id, cont in containers.iterrows():
+                            if cont['GPUs'] == sjob_gres:
+                                with gpu_node.add_node() as container_node:
                                     container_node.log(
                                         f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
                     else:
