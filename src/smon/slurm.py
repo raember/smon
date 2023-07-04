@@ -277,7 +277,7 @@ def res_to_srun_cmd(n_cpu: int, mem: int, n_gpu: int, job_name: str = None, comm
 
 def is_interactive_bash_session(proc: Process) -> bool:
     if proc.name() == 'srun':
-        return proc.cmdline()[-1] == 'bash'
+        return proc.cmdline()[-1] in ['bash', 'sh', 'mysecureshell', 'tmux', 'screen']
     else:
         for child in proc.children():
             if is_interactive_bash_session(child):
