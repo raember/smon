@@ -216,11 +216,17 @@ def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) ->
     state = f" {fmt_info}{sjob['job_state']}{FMT_RST}{reason if reason != ' (None)' else ''}"
     td_since_submit = datetime.now() - datetime.fromtimestamp(sjob["submit_time"])
     td_since_started = timedelta(seconds=int(sjob["run_time"]))
+    pw = pwd.getpwuid(sjob["user_id"])
+    name = ''
+    if pw.pw_gecos != '':
+        name = f'{fmt_info}{pw.pw_gecos}{FMT_RST} ({fmt_info}{pw.pw_name}{FMT_RST})'
+    else:
+        name = f'{fmt_info}{pw.pw_name}{FMT_RST}'
     return f'SLURM job' \
            f'{state if is_not_running else ""}' \
            f' {fmt_info}#{job_id}{FMT_RST}:' \
            f' "{fmt_info}{sjob["name"]}{FMT_RST}"' \
-           f' by {fmt_info}{sjob["user"]}{FMT_RST}' \
+           f' by {name}' \
            f' ({f"submitted {strtdelta(td_since_submit)}" if is_not_running else f"started {strtdelta(td_since_started)}"} ago):' \
            f' {fmt_info}{sjob["command"]}{FMT_RST}'
 
