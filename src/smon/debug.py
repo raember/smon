@@ -13,7 +13,7 @@ if __name__ == '__main__':
         help='Loads data from a pickled error dump file.'
     )
     ap.add_argument(
-        '-l-', '--list-dumps',
+        '-l', '--list-dumps',
         action='store_true', default=False, dest='list_dumps',
         help='List error dump files.'
     )
