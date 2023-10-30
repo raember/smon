@@ -479,29 +479,30 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                 msg2(gpu_to_string(gpu_info_, gpu_id, FMT_INFO1))
                 for _, gpu_proc_ in gpu_processes2[gpu_processes2['gpu_uuid'] == gpu_info_['uuid']].iterrows():
                     err3(f'Process {gpu_proc_.pid} is using GPU!')
+                    gpu_idx = gpu_processes['pid'] == gpu_proc_.pid
                     if not is_dump:
                         gpu_proc = Process(gpu_proc_.pid)
                         msg4(process_to_string(gpu_proc))
                         sjob_proc = gpu_proc.parent()
                         sjob_name = sjob_proc.name()
-                        gpu_processes.loc[gpu_proc_pid, 'name'] = sjob_name
+                        gpu_processes.loc[gpu_idx, 'name'] = sjob_name
                         start_time = datetime.fromtimestamp(gpu_proc.create_time())
-                        gpu_processes.loc[gpu_proc_pid, 'create_time'] = start_time
+                        gpu_processes.loc[gpu_idx, 'create_time'] = start_time
                         proc_cpu_util = gpu_proc.cpu_percent(0.2) / 100 * gpu_proc.cpu_num()
-                        gpu_processes.loc[gpu_proc_pid, 'cpu_util'] = proc_cpu_util
+                        gpu_processes.loc[gpu_idx, 'cpu_util'] = proc_cpu_util
                     else:
                         msg4(gpu_proc_)
                         sjob_proc = True
-                        sjob_name = gpu_processes.loc[gpu_proc_pid, 'name']
-                        start_time = gpu_processes.loc[gpu_proc_pid, 'create_time']
-                        proc_cpu_util = gpu_processes.loc[gpu_proc_pid, 'cpu_util']
+                        sjob_name = gpu_processes.loc[gpu_idx, 'name']
+                        start_time = gpu_processes.loc[gpu_idx, 'create_time']
+                        proc_cpu_util = gpu_processes.loc[gpu_idx, 'cpu_util']
                     while sjob_proc is not None:  # Check up the process tree
-                        if gpu_processes.loc[gpu_proc_pid, 'container'] is not None or is_docker_container(sjob_proc):
+                        if gpu_processes.loc[gpu_idx, 'container'].item() is not None or is_docker_container(sjob_proc):
                             # Running inside docker
                             if not is_dump:
                                 container_id = get_container_id_from(sjob_proc)
                             else:
-                                container_id = gpu_processes.loc[gpu_proc_pid, 'container']
+                                container_id = gpu_processes.loc[gpu_idx, 'container']
                             container_info = containers.loc[container_id]
                             msg5(
                                 f'Running inside docker: {container_to_string(container_info, container_id, FMT_INFO1)}')
