@@ -15,6 +15,24 @@ from pyslurm import job, partition, powercap, statistics, node
 from smon.log import FMT_RST, FMT_INFO1
 from smon.util import round_down, strtdelta
 
+COLUMNS = [
+    'account', 'accrue_time', 'admin_comment', 'alloc_node', 'alloc_sid', 'array_job_id', 'array_task_id',
+    'array_task_str', 'array_max_tasks', 'assoc_id', 'batch_flag', 'batch_features', 'batch_host', 'billable_tres',
+    'bitflags', 'boards_per_node', 'burst_buffer', 'burst_buffer_state', 'command', 'comment', 'contiguous',
+    'core_spec', 'cores_per_socket', 'cpus_per_task', 'cpus_per_tres', 'cpu_freq_gov', 'cpu_freq_max', 'cpu_freq_min',
+    'dependency', 'derived_ec', 'eligible_time', 'end_time', 'exc_nodes', 'exit_code', 'features', 'group_id', 'job_id',
+    'job_state', 'last_sched_eval', 'licenses', 'max_cpus', 'max_nodes', 'mem_per_tres', 'name', 'network', 'nodes',
+    'nice', 'ntasks_per_core', 'ntasks_per_core_str', 'ntasks_per_node', 'ntasks_per_socket', 'ntasks_per_socket_str',
+    'ntasks_per_board', 'num_cpus', 'num_nodes', 'num_tasks', 'partition', 'mem_per_cpu', 'min_memory_cpu',
+    'mem_per_node', 'min_memory_node', 'pn_min_memory', 'pn_min_cpus', 'pn_min_tmp_disk', 'power_flags', 'priority',
+    'profile', 'qos', 'reboot', 'req_nodes', 'req_switch', 'requeue', 'resize_time', 'restart_cnt', 'resv_name',
+    'run_time', 'run_time_str', 'sched_nodes', 'shared', 'show_flags', 'sockets_per_board', 'sockets_per_node',
+    'start_time', 'state_reason', 'std_err', 'std_in', 'std_out', 'submit_time', 'suspend_time', 'system_comment',
+    'time_limit', 'time_limit_str', 'time_min', 'threads_per_core', 'tres_alloc_str', 'tres_bind', 'tres_freq',
+    'tres_per_job', 'tres_per_node', 'tres_per_socket', 'tres_per_task', 'tres_req_str', 'user_id', 'wait4switch',
+    'wckey', 'work_dir', 'cpus_allocated', 'cpus_alloc_layout', 'CPU_IDs', 'Mem', 'GRES'
+]
+
 
 def _id_to_list(s: str) -> List[int]:
     l = []
@@ -40,6 +58,9 @@ def get_jobs() -> DataFrame:
     :rtype: DataFrame
     """
     df = DataFrame(job().get()).transpose()
+    if len(df) == 0:
+        df = DataFrame(columns=COLUMNS)
+        return df
     # Now grab the GRES data
     df['CPU_IDs'] = None
     df['Mem'] = None
@@ -47,6 +68,8 @@ def get_jobs() -> DataFrame:
     sproc = subprocess.Popen(['/usr/bin/scontrol', 'show', 'job', '-do'], stdout=subprocess.PIPE)
     for sjob_line in sproc.stdout.readlines():
         line = sjob_line.decode().strip('\n')
+        if line == 'No jobs in the system':
+            break
         m_job_id = re.match(r'^JobId=(\d+)', line)
         job_id = int(m_job_id.group(1))
         m_data = re.search(r'CPU_IDs=([\d\-,]+) Mem=(\d+) GRES=(\S+)', line[-500:])
@@ -216,11 +239,17 @@ def slurm_job_to_string(sjob: Series, job_id: int, fmt_info: str = FMT_INFO1) ->
     state = f" {fmt_info}{sjob['job_state']}{FMT_RST}{reason if reason != ' (None)' else ''}"
     td_since_submit = datetime.now() - datetime.fromtimestamp(sjob["submit_time"])
     td_since_started = timedelta(seconds=int(sjob["run_time"]))
+    pw = pwd.getpwuid(sjob["user_id"])
+    name = ''
+    if pw.pw_gecos != '':
+        name = f'{fmt_info}{pw.pw_gecos}{FMT_RST} ({fmt_info}{pw.pw_name}{FMT_RST})'
+    else:
+        name = f'{fmt_info}{pw.pw_name}{FMT_RST}'
     return f'SLURM job' \
            f'{state if is_not_running else ""}' \
            f' {fmt_info}#{job_id}{FMT_RST}:' \
            f' "{fmt_info}{sjob["name"]}{FMT_RST}"' \
-           f' by {fmt_info}{sjob["user"]}{FMT_RST}' \
+           f' by {name}' \
            f' ({f"submitted {strtdelta(td_since_submit)}" if is_not_running else f"started {strtdelta(td_since_started)}"} ago):' \
            f' {fmt_info}{sjob["command"]}{FMT_RST}'
 
