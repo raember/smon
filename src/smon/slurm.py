@@ -113,7 +113,7 @@ def get_jobs_pretty() -> DataFrame:
     df.command = df.command.astype(str)
     df.comment = df.comment.map(lambda c: '' if c is None else c).astype(str)
     df.contiguous = df.contiguous.astype(str)
-    df.cpus_per_task = df.cpus_per_task.astype(int)
+    df.cpus_per_task = df.cpus_per_task.map(lambda n: -1 if n == 'N/A' else int(n))
     df.eligible_time = df.eligible_time.astype(int)
     df.end_time = df.end_time.astype(int)
     df.group_id = df.group_id.astype(int)

@@ -26,14 +26,23 @@ from smon.slurm import jobid_to_pids, is_sjob_setup_sane, slurm_job_to_string, g
 from smon.util import is_docker_container, get_container_id_from, is_slurm_session, process_to_string, \
     strtdelta, strmbytes, strgbytes
 
+# noinspection PyTypeChecker
 sjobs: DataFrame = None
+# noinspection PyTypeChecker
 node: Series = None
+# noinspection PyTypeChecker
 partition: Series = None
+# noinspection PyTypeChecker
 stats: Series = None
+# noinspection PyTypeChecker
 stats_type: DataFrame = None
+# noinspection PyTypeChecker
 stats_user: DataFrame = None
+# noinspection PyTypeChecker
 gpu_info: DataFrame = None
+# noinspection PyTypeChecker
 gpu_processes: DataFrame = None
+# noinspection PyTypeChecker
 containers: DataFrame = None
 
 CMD_PREFIX = f'\033[1;{MAGENTA}m❯\033[m'
@@ -89,6 +98,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
         exit(0)
 
     data = {}
+    args = {}
     is_dump = False
     if pkl_fp is not None:
         msg1('Loading state from dump file')
@@ -221,7 +231,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         tree.log_leaf(f'{fmt_warn}Is an interactive bash session')
                     is_sane, slurm_ppid = is_sjob_setup_sane(sjob_main_pid)
                 except NoSuchProcess as ex_nsp:
-                    tree.log_leaf(f"{fmt_warn}SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
+                    tree.log_leaf(f"{fmt_bad}SLURM job session process (PID:{ex_nsp.pid}) does not exist!")
                     is_sane = False
                     slurm_ppid = None
             else:
@@ -233,7 +243,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                     tree.log_leaf(
                         f'{fmt_bad}SLURM job was not set up inside a screen/tmux session, but inside "{slurm_ppid.name()}"!')
                 else:
-                    tree.log_leaf(f'{fmt_warn}SLURM session cannot be determined!')
+                    tree.log_leaf(f'{fmt_bad}SLURM session cannot be determined!')
             sjobs2.loc[job_id, 'is_interactive_bash_session'] = is_interactive_bash
             sjobs2.loc[job_id, 'is_sane'] = is_sane
             sjobs2.loc[job_id, 'ppid'] = slurm_ppid.pid if hasattr(slurm_ppid, 'pid') else slurm_ppid
@@ -245,7 +255,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
             sjob_gres = sjob['GRES']
             res = sjob['tres_req']
             res_cpu = int(res.get("cpu", len(sjob["CPU_IDs"])))
-            res_mem = float(res.get("mem", sjob["pn_min_memory"]).rstrip('G'))
+            res_mem = float(str(res.get("mem", sjob["pn_min_memory"])).rstrip('G'))
             res_gpu = len(sjob_gres)
             tree.log_leaf(f'Reserved {res_to_str(fmt_info, res_cpu, fmt_info, res_mem, fmt_info, res_gpu, node)}' +
                           (f' (GPU: {", ".join(map(str, sjob_gres))})' if len(sjob_gres) != 0 else ''))
@@ -285,7 +295,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                             if cont['GPUs'] == sjob_gres:
                                 with gpu_node.add_node() as container_node:
                                     container_node.log(
-                                        f'Possibly linked to {container_to_string(cont, cont_id, fmt_info)}')
+                                        f'Possibly linked to {container_to_string(cont, str(cont_id), fmt_info)}')
                     else:
                         sjobs.loc[job_id, 'is_using_gpu'] = True
                         gpu_info.loc[gpu_id_internal, 'in_use'] = True
@@ -492,6 +502,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         gpu_processes.loc[gpu_idx, 'cpu_util'] = proc_cpu_util
                     else:
                         msg4(gpu_proc_)
+                        gpu_proc = None
                         sjob_proc = True
                         sjob_name = gpu_processes.loc[gpu_idx, 'name']
                         start_time = gpu_processes.loc[gpu_idx, 'create_time']
