@@ -333,7 +333,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                                 proc_ram = float(proc_mem.rss) / 1000 ** 3
                                 # proc_ram_virt = float(proc_mem.vms) / 1000 ** 3
                                 gpu_processes.loc[gpu_proc_pid, 'ram'] = proc_ram
-                                proc_ram_perc = proc_ram / res_mem * 100
+                                proc_ram_perc = proc_ram / res_mem * 100 if res_mem > 0 else PERCENTAGE_WARN2 + 1
                                 cpu_cnt = proc.cpu_num()
                                 gpu_processes.loc[gpu_proc_pid, 'cpu_cnt'] = cpu_cnt
                                 proc_cpu_util = proc.cpu_percent(0.2)
@@ -347,7 +347,7 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
                         else:
                             start_time = gpu_processes.loc[gpu_proc_pid, 'create_time']
                             proc_ram = gpu_processes.loc[gpu_proc_pid, 'ram']
-                            proc_ram_perc = proc_ram / res_mem * 100
+                            proc_ram_perc = proc_ram / res_mem * 100 if res_mem > 0 else PERCENTAGE_WARN2 + 1
                             cpu_cnt = gpu_processes.loc[gpu_proc_pid, 'cpu_cnt']
                             proc_cpu_util = gpu_processes.loc[gpu_proc_pid, 'cpu_util']
                             sjob_proc = Process(1)
