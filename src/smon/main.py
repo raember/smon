@@ -444,9 +444,12 @@ def main(show_all=False, extended=False, user=None, jobid=0, pkl_fp: Path = None
 
             # Display basic information about SLURM job
             msg1(slurm_job_to_string(sjob, job_id, fmt_info))
-            sjob_main_pid = Process(sjob['alloc_sid'])
-            if is_interactive_bash_session(sjob_main_pid):
-                warn2('Is an interactive bash session')
+            try:
+                sjob_main_pid = Process(sjob['alloc_sid'])
+                if is_interactive_bash_session(sjob_main_pid):
+                    warn2('Is an interactive bash session')
+            except NoSuchProcess:
+                warn2('Initiating bash session does not exist (anymore?)')
 
             sjob_gres = list(range(int(sjob.get('tres_per_node', 'gpu:0').split(':')[-1])))
             res = sjob['tres_req']
